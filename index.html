@@ -657,11 +657,10 @@ function Gate(props){
    App — auth bootstrap (shared session) → perms gate → config/season → mount CRM.
    Mirrors Vision's getSession→users→userObj→perms chain.
    ════════════════════════════════════════════════════════════════════════════ */
-var ROLE_ALL_ACCESS={admin:1,qc_manager:1,board:1,commercial:1,executive:1};
-/* Roles allowed into Commercial. Mirrors Vision's perms.viewCRM grants
-   (admin/qc_manager/board/commercial/executive/power_user + client_qc? — CRM is
-   commercial-only; keep it to the all-access commercial roles + admin). */
-var ROLE_VIEW_CRM={admin:1,qc_manager:1,board:1,commercial:1,executive:1,power_user:1};
+/* Roles allowed into Commercial — EXACTLY Vision's perms.viewCRM grants
+   (index.html ROLES): only admin, power_user, commercial. board/qc_manager/
+   executive/etc. do NOT have viewCRM in Vision, so they are denied here too. */
+var ROLE_VIEW_CRM={admin:1,power_user:1,commercial:1};
 
 function App(){
   var sState=useState({phase:'boot',msg:'Signing in…'});
