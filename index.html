@@ -82,7 +82,8 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .crmv .cm-foot{padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
 .crmv .cm-ws{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border-radius:9px;background:transparent;border:1px solid var(--border2);color:var(--sidebar-text);font-family:var(--font-body);font-size:13px;font-weight:500;cursor:pointer;transition:.15s;text-align:left}
 .crmv .cm-ws:hover{background:var(--sidebar2);border-color:color-mix(in srgb,var(--accent) 55%,var(--border2))}
-.crmv .cm-ws svg{width:14px;height:14px;opacity:.72;flex-shrink:0}
+.crmv .cm-ws-ic{display:inline-flex;align-items:center;flex-shrink:0}
+.crmv .cm-ws svg{width:15px;height:15px;opacity:.78;flex-shrink:0}
 .crmv .cm-user{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09)}
 .crmv .cm-av{width:34px;height:34px;border-radius:9px;flex-shrink:0;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;letter-spacing:.02em}
 .crmv .cm-name{font-size:13px;font-weight:600;color:var(--sidebar-text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -113,7 +114,8 @@ var supabase = window.supabase.createClient(DALOS_SUPABASE_URL, DALOS_SUPABASE_A
 
 var WORKSPACE_URL='https://daltexcorp-opsexcellence.github.io/dalos-workspace-dev/';
 /* sidebar-footer icons + helpers */
-var ICON_APPS='M6 1H1v5h5zM1 0a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V1a1 1 0 0 0-1-1zm14 1h-5v5h5zM10 0a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V1a1 1 0 0 0-1-1zM6 10H1v5h5zm-5-1a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1zm14 1h-5v5h5zm-5-1a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1z';
+/* Workspace/app-switcher icon — identical to Vision's switcher (index.html APPS_S) */
+var ICON_WS='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/><path d="M17 4v6M14 7h6"/></svg>';
 var ICON_OUT1='M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z';
 var ICON_OUT2='M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708z';
 function initials(name){ var p=(name||'').trim().split(/\s+/).filter(Boolean); if(!p.length) return '—'; return (p[0][0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase(); }
@@ -762,7 +764,7 @@ function CRMHost(props){
         ce('div',{className:'cm-foot',key:'foot'},
           /* Workspace switch — above the user block, per the Vision footer pattern */
           ce('button',{className:'cm-ws',onClick:goWorkspace},
-            ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ce('path',{d:ICON_APPS})),'Workspace'),
+            ce('span',{className:'cm-ws-ic','aria-hidden':'true',dangerouslySetInnerHTML:{__html:ICON_WS}}),'Workspace'),
           /* user card */
           ce('div',{className:'cm-user'},
             ce('div',{className:'cm-av'},initials(cu.name)),
