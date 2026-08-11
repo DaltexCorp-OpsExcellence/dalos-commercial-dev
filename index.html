@@ -159,12 +159,24 @@ function loadInspPreview(id,setPopup,config){
     });
   });
 }
+/* Self-contained read-only CQC report loader for the CRM overlay.
+   Reuses ClientQCMgmt's cqcQuery select string + row-mapper VERBATIM so numbers
+   are byte-identical to the live Client QC module. The only deviations: the
+   'matched' flag reads the stored r.matched column (containerSet is unavailable
+   here — no extra DB query), and the category2 product fallback drops the
+   ClientQCMgmt-scoped selCqcProd. Imports NO ClientQCMgmt state. */
 function loadCqcPreview(id,setPopup,config,_attempt){
   _attempt=_attempt||0;
   setPopup({id:id,loading:true,data:null});
   supabase.from('client_qc_reports').select('*, client_qc_defect_readings(bucket_key,value), client_qc_files(id,file_name,file_url,file_type), cqc_sample_rows(id,sample_number,sample_variety_text,sample_variety_id,sample_variety2_id,sample_farm,sample_plot,sample_farm2,sample_plot2,sample_trace_code,notes,score,brix,disputed,dispute_note,cqc_sample_defect_readings(cqc_defect_id,value)), cqc_score_revisions(id,direction,origin,from_score,to_score,sample_numbers,sample_snapshot,note,recorded_at,recorded_by,users(full_name))').eq('id',id).single().then(function(rr){
     if(rr.error||!rr.data){setPopup(null);return;}
     var r0=rr.data;
+    /* Data-race guard: keep the shimmer skeleton (loading:true) and retry rather than
+       resolving to a misleading render when EITHER the shared config reference maps
+       aren't populated yet (deep-link -> raw UUIDs for client/carton/variety) OR the
+       nested per-sample defect readings didn't come back (throttled/partial fetch ->
+       Total 0.0% / Major-Minor —). Bounded so a report that genuinely has sample rows
+       but no readings still resolves instead of spinning forever. */
     var _rows=r0.cqc_sample_rows||[];
     var _hasReadings=_rows.some(function(sr){return (sr.cqc_sample_defect_readings||[]).length>0;});
     var _cfgReady=!!(config&&config._loaded);
@@ -210,6 +222,7 @@ function loadCqcPreview(id,setPopup,config,_attempt){
             files:(r.client_qc_files||[]).map(function(f){return {id:f.id,name:f.file_name,url:f.file_url,type:f.file_type};}), matched:(r.matched===true), batchId:r.inspection_id||null,
             season:r.season_id||'', savedAt:r.created_at||'',
             supersededBy:r.superseded_by||null,
+            /* Client score revisions (upgrades/downgrades), newest first. See cqc_score_revisions. */
             revisions:(r.cqc_score_revisions||[]).slice().sort(function(a,b){return new Date(b.recorded_at||0)-new Date(a.recorded_at||0);}).map(function(v){
               return {id:v.id,direction:v.direction||'',origin:v.origin||'',from:v.from_score||'',to:v.to_score||'',
                 sampleNumbers:(v.sample_numbers&&v.sample_numbers.length)?v.sample_numbers:null,
@@ -217,6 +230,7 @@ function loadCqcPreview(id,setPopup,config,_attempt){
                 by:(v.users&&v.users.full_name)||''};
             }),
             productId:r.product_id||'',
+            /* All varieties from header config */
             allVarieties:(function(){
               var cef=r.cqc_extra_fields||{};
               var vn=function(id){return (config.varietiesIdToName&&id&&config.varietiesIdToName[id])||'';};
@@ -229,6 +243,7 @@ function loadCqcPreview(id,setPopup,config,_attempt){
               });
               return list;
             })(),
+            /* Sample rows for detail panel */
             sampleRows:(r.cqc_sample_rows||[]).map(function(sr){
               var vn=function(id){return (config.varietiesIdToName&&id&&config.varietiesIdToName[id])||'';};
               var sv=sr.sample_variety_text||(function(){var a=vn(sr.sample_variety_id);var b=vn(sr.sample_variety2_id);return b?a+' / '+b:a;})()||'';
@@ -244,6 +259,7 @@ function loadCqcPreview(id,setPopup,config,_attempt){
               });
               return {id:sr.id,num:sr.sample_number,variety:sv,farm:sr.sample_farm||'',plot:sr.sample_plot||'',farm2:sr.sample_farm2||'',plot2:sr.sample_plot2||'',trace:sr.sample_trace_code||'',notes:sr.notes||'',score:sr.score||'',brix:sr.brix!=null?sr.brix:'',disputed:sr.disputed||false,disputeNote:sr.dispute_note||'',major:majorTotal,minor:minorTotal};
             }),
+            /* Compute Minor/Major averages from sample rows */
             sectionAvgs:(function(){
               var samples=r.cqc_sample_rows||[];
               if(samples.length===0) return {};
@@ -376,6 +392,10 @@ function InspPreviewModal(props){
     )
   );
 }
+/* Read-only CQC report overlay for the CRM island. Reuses InspPreviewModal's
+   overlay shell + ClientQCMgmt's desktop detail-pane card sections verbatim,
+   widened for the two-col grids + 10-col sample table. No edit/back/perms;
+   no matchedB/matchedCmp comparison blocks (deferred). r=popup.data. */
 function CqcPreviewModal(props){
   var pp=props.popup; var onClose=props.onClose; var config=props.config||{};
   function scoreStyle(s){return {padding:'3px 10px',borderRadius:12,fontSize:12,fontWeight:500,background:s==='GREEN'?'var(--green-bg)':s==='RED'?'#fff0f0':'var(--amber-bg)',color:s==='GREEN'?'var(--green)':s==='RED'?'var(--red)':'var(--amber)'};}
@@ -393,8 +413,12 @@ function CqcPreviewModal(props){
       ),
       pp.loading
         ?(function(){
+            /* Card-shaped skeleton mirroring the real report layout so it reads as "filling in", never as 0/no-data.
+               This modal is a fixed overlay OUTSIDE the .crmv scope, so .sk is unavailable — inline styles reuse the
+               global @keyframes dh-shimmer. Matches the real body's padding + card widths so nothing jumps on load. */
             var sk=function(w,h,extra){return ce('div',{style:Object.assign({background:'linear-gradient(90deg,#e8e4da 0%,#ddd8cc 50%,#e8e4da 100%)',backgroundSize:'200% 100%',animation:'dh-shimmer 1.25s ease-in-out infinite',borderRadius:6,width:w,height:h,flexShrink:0},extra||{})});};
             return ce('div',{style:{overflowY:'auto',flex:1,padding:'16px 18px'}},
+              /* Top row: total-defect block + Samples/Major/Minor stat tile */
               ce('div',{style:{display:'flex',gap:16,marginBottom:16,flexWrap:'wrap',alignItems:'stretch'}},
                 ce('div',{style:{flex:'2 1 260px',background:'var(--card)',border:'1px solid var(--border)',borderRadius:'var(--r2)',padding:'14px 16px'}},
                   sk(90,11,{marginBottom:12}),
@@ -405,12 +429,14 @@ function CqcPreviewModal(props){
                   [0,1,2].map(function(i){return ce('div',{key:i,style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},sk(64,12),sk(42,15));})
                 )
               ),
+              /* Two info grids (Shipment info / Product info) */
               ce('div',{className:'cqc-two-col'},
                 [0,1].map(function(col){return ce('div',{key:col,style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:'var(--r2)',padding:'12px 14px'}},
                   sk(90,11,{marginBottom:12}),
                   [0,1,2,3,4,5].map(function(i){return ce('div',{key:i,style:{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'0.5px solid var(--border)'}},sk(64,10),sk(84,10));})
                 );})
               ),
+              /* Sample-readings table (~6 rows) */
               ce('div',{style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:'var(--r2)',padding:'12px 14px',marginTop:14}},
                 ce('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}},sk(110,11),sk(70,11)),
                 ce('div',{style:{border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}},
