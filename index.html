@@ -77,6 +77,20 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 /* amber info banners: dark-amber text on a light amber tint */
 .crmv.crmv .alert-warn{background:rgba(183,121,31,.12);border-color:rgba(183,121,31,.35);color:#8a5a12}
 .crmv.crmv .l-draft{color:#8a5a12}
+
+/* ── sidebar footer: Workspace button · user card · Sign out · version ── */
+.crmv .cm-foot{padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.crmv .cm-ws{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border-radius:9px;background:transparent;border:1px solid var(--border2);color:var(--sidebar-text);font-family:var(--font-body);font-size:13px;font-weight:500;cursor:pointer;transition:.15s;text-align:left}
+.crmv .cm-ws:hover{background:var(--sidebar2);border-color:color-mix(in srgb,var(--accent) 55%,var(--border2))}
+.crmv .cm-ws svg{width:14px;height:14px;opacity:.72;flex-shrink:0}
+.crmv .cm-user{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09)}
+.crmv .cm-av{width:34px;height:34px;border-radius:9px;flex-shrink:0;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;letter-spacing:.02em}
+.crmv .cm-name{font-size:13px;font-weight:600;color:var(--sidebar-text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crmv .cm-role{font-size:11px;color:var(--sidebar-muted);margin-top:1px}
+.crmv .cm-signout{display:flex;align-items:center;gap:9px;width:100%;padding:8px 11px;border-radius:9px;background:transparent;border:none;color:var(--sidebar-text);font-family:var(--font-body);font-size:13px;cursor:pointer;transition:.15s;text-align:left}
+.crmv .cm-signout:hover{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.crmv .cm-signout svg{width:14px;height:14px;opacity:.72;flex-shrink:0}
+.crmv .cm-ver{font-size:10px;color:var(--sidebar-muted);padding:3px 4px 0;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -98,6 +112,16 @@ var DALOS_SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 var supabase = window.supabase.createClient(DALOS_SUPABASE_URL, DALOS_SUPABASE_ANON);
 
 var WORKSPACE_URL='https://daltexcorp-opsexcellence.github.io/dalos-workspace-dev/';
+/* sidebar-footer icons + helpers */
+var ICON_APPS='M6 1H1v5h5zM1 0a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V1a1 1 0 0 0-1-1zm14 1h-5v5h5zM10 0a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V1a1 1 0 0 0-1-1zM6 10H1v5h5zm-5-1a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1zm14 1h-5v5h5zm-5-1a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1z';
+var ICON_OUT1='M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z';
+var ICON_OUT2='M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708z';
+function initials(name){ var p=(name||'').trim().split(/\s+/).filter(Boolean); if(!p.length) return '—'; return (p[0][0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase(); }
+function roleLabel(r){ if(!r) return ''; r=String(r).replace(/_/g,' '); return r.charAt(0).toUpperCase()+r.slice(1); }
+function goWorkspace(){ window.location.href=WORKSPACE_URL; }
+/* Deliberate sign-out. Shared token → signs out of all DalOS apps (same as Vision's button),
+   then back to the Workspace login. */
+function signOut(){ var go=function(){ window.location.href=WORKSPACE_URL; }; try{ supabase.auth.signOut().then(go).catch(go); }catch(e){ go(); } }
 
 /* Shared idle heartbeat key — keep the shared session alive like the other apps.
    We only WRITE it (good citizen); we never enforce a timeout here (that is what
@@ -735,11 +759,23 @@ function CRMHost(props){
         isAdmin?ce('div',{className:'nav-label',key:'setup-lbl'},'Setup'):null,
         isAdmin?navItem('m-regions','Region rules',tab==='regions',function(){goTab('regions');},'globe'):null,
         ce('div',{className:'nav-spacer',key:'spacer'}),
-        ce('a',{key:'switch',href:WORKSPACE_URL,className:'nav-item',style:{textDecoration:'none'}},'‹ Switch app'),
-        ce('div',{key:'foot',style:{padding:'10px 18px 4px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-          ce('span',{className:'staging-badge'},'staging')
-        ),
-        ce('div',{key:'user',style:{padding:'6px 18px 2px',fontSize:11,color:'var(--sidebar-muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},cu.name||'')
+        ce('div',{className:'cm-foot',key:'foot'},
+          /* Workspace switch — above the user block, per the Vision footer pattern */
+          ce('button',{className:'cm-ws',onClick:goWorkspace},
+            ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ce('path',{d:ICON_APPS})),'Workspace'),
+          /* user card */
+          ce('div',{className:'cm-user'},
+            ce('div',{className:'cm-av'},initials(cu.name)),
+            ce('div',{style:{minWidth:0}},
+              ce('div',{className:'cm-name'},cu.name||'—'),
+              ce('div',{className:'cm-role'},roleLabel(cu.role))
+            )
+          ),
+          /* sign out */
+          ce('button',{className:'cm-signout',onClick:signOut},
+            ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ce('path',{d:ICON_OUT1}),ce('path',{d:ICON_OUT2})),'Sign out'),
+          ce('div',{className:'cm-ver'},'DalOS Commercial · v0.1 · staging')
+        )
       ),
       /* Content root — crm.js mounts template() (.subbar + .page) here (descendant of .crmv
          so scoped styles apply). Flex column so .page scrolls internally. */
