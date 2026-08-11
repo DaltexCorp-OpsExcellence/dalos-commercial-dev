@@ -617,11 +617,17 @@ function CRMHost(props){
   var isAdmin=props.isAdmin;
   var sPopup=useState(null);
   var sCqcPopup=useState(null);
+  var sHdr=useState('');  /* crm.js lifts its tab-nav HTML here via onHeader (same as Vision's shell topbar) */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
   React.useEffect(function(){
     injectCrmCss();
     if(ref.current&&window.CRM){
-      window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg});
+      /* onHeader is REQUIRED standalone: crm.js's template() renders no in-island tab bar and
+         its #viewTabs fallback only fires if the host places that element inside ROOT (which
+         init's innerHTML wipes). Without onHeader the whole top nav renders nowhere and only
+         the Dashboard is reachable. We mirror Vision (index.html CRMView → setCrmHdr). */
+      window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg,
+        onHeader:function(html){ sHdr[1](html||''); }});
       window.openInspPreviewGlobal=function(id){loadInspPreview(id,sPopup[1],cfgRef.current);};
       window.openCqcPreviewGlobal=function(id){loadCqcPreview(id,sCqcPopup[1],cfgRef.current);};
     }
@@ -629,7 +635,13 @@ function CRMHost(props){
   },[]);
   React.useEffect(function(){ if(window.CRM&&seasonId) window.CRM.setSeason(seasonId); },[seasonId]);
   return ce(React.Fragment,null,
-    ce('div',{className:'crmv',ref:ref,style:{height:'100%'}}),
+    ce('div',{style:{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}},
+      /* Toned-green topbar band carrying the lifted CRM tab nav. Class 'crmv' so the
+         scoped .crm-nav/.ultabs styles apply; bg = --sidebar so the light-green tab text reads. */
+      ce('div',{className:'crmv',style:{flexShrink:0,height:50,background:'var(--sidebar)',display:'flex',alignItems:'stretch',padding:'0 16px',borderBottom:'1px solid rgba(0,0,0,.15)'},dangerouslySetInnerHTML:{__html:sHdr[0]}}),
+      /* Content root — crm.js mounts template() (.subbar + .page) here. Flex column so .page scrolls. */
+      ce('div',{className:'crmv',ref:ref,style:{flex:1,minHeight:0,display:'flex',flexDirection:'column'}})
+    ),
     sPopup[0]&&ce(InspPreviewModal,{popup:sPopup[0],onClose:function(){sPopup[1](null);}}),
     sCqcPopup[0]&&ce(CqcPreviewModal,{popup:sCqcPopup[0],config:cfg,onClose:function(){sCqcPopup[1](null);}})
   );
