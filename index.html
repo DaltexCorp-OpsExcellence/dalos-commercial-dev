@@ -609,18 +609,29 @@ function loadCommercialConfig(){
    CRMHost — mirrors Vision's CRMView mount pattern (cfgRef + preview globals),
    but standalone: no onHeader/onTab, so crm.js renders its own full shell.
    ════════════════════════════════════════════════════════════════════════════ */
-/* Leads sub-view navigation. In Vision this lives in the shell sidebar ("Leads
-   Managements" group) which calls window.CRM.leadNav(dest,key); crm.js's own
-   leadTabBar() is dead code (defined, never called). Standalone must provide it or
-   only the default Workspace view is reachable. Mirrors crm.js leadTabBar's T set. */
+/* ── Left-sidebar navigation model. Drives crm.js via its public API
+   (window.CRM.setTab for commercial tabs, window.CRM.leadNav for leads sub-views).
+   We render the sidebar host-side using crm.js's own (styled-but-unused) .sidebar/
+   .nav-item/.nav-label classes so it looks native. onTab mirrors the active view
+   for highlighting. crm.js's leadTabBar() is dead code; Vision drove the same nav
+   from its shell sidebar. ── */
 var LEADS_FAMILY={leads:1,inbox:1,funnel:1,campaigns:1};
+var MAIN_NAV=[
+  {id:'dashboard',label:'Dashboard'},
+  {id:'shipments',label:'Shipments'},
+  {id:'invoices',label:'Invoices'},
+  {id:'claims',label:'Claims'},
+  {id:'redirects',label:'Redirects'},
+  {id:'grading',label:'Grading'},
+  {id:'clean',label:'Clean'}
+];
 var LEADS_SUBNAV=[
   {dest:'leads',key:'ws',label:'Workspace'},
-  {dest:'leads',key:'enr',label:'Enrichment'},
-  {dest:'leads',key:'rej',label:'Returned'},
+  {dest:'leads',key:'enr',label:'Enrichment queue'},
+  {dest:'leads',key:'rej',label:'Returned by sales'},
   {dest:'inbox',key:'inbox',label:'Lead inbox'},
   {dest:'inbox',key:'pip',label:'My pipeline'},
-  {dest:'leads',key:'cap',label:'Capture'},
+  {dest:'leads',key:'cap',label:'Capture · show mode'},
   {dest:'campaigns',key:'',label:'Campaigns'},
   {dest:'funnel',key:'board',label:'Funnel'},
   {dest:'funnel',key:'conv',label:'Conversion'}
@@ -634,20 +645,15 @@ function CRMHost(props){
   var isAdmin=props.isAdmin;
   var sPopup=useState(null);
   var sCqcPopup=useState(null);
-  var sHdr=useState('');  /* crm.js lifts its tab-nav HTML here via onHeader (same as Vision's shell topbar) */
   var sTab=useState('dashboard');   /* current CRM tab, mirrored via onTab */
   var sLeadKey=useState('');        /* active leads sub-view key (ws/enr/rej/inbox/pip/cap/board/conv) */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
   React.useEffect(function(){
     injectCrmCss();
     if(ref.current&&window.CRM){
-      /* onHeader is REQUIRED standalone: crm.js's template() renders no in-island tab bar and
-         its #viewTabs fallback only fires if the host places that element inside ROOT (which
-         init's innerHTML wipes). Without onHeader the whole top nav renders nowhere and only
-         the Dashboard is reachable. onTab mirrors the active tab/lead-view for the leads sub-nav.
-         We mirror Vision (index.html CRMView → setCrmHdr / setCrmTab / setCrmLeadKey). */
+      /* No onHeader: the host renders its own left sidebar (below) instead of the lifted
+         top tab-bar. onTab mirrors the active tab / lead sub-view so the sidebar highlights. */
       window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg,
-        onHeader:function(html){ sHdr[1](html||''); },
         onTab:function(t,k){ sTab[1](t); sLeadKey[1](k||''); }});
       window.openInspPreviewGlobal=function(id){loadInspPreview(id,sPopup[1],cfgRef.current);};
       window.openCqcPreviewGlobal=function(id){loadCqcPreview(id,sCqcPopup[1],cfgRef.current);};
@@ -655,27 +661,41 @@ function CRMHost(props){
     return function(){ if(window.CRM) window.CRM.teardown(); window.openInspPreviewGlobal=function(){}; window.openCqcPreviewGlobal=function(){}; sPopup[1](null); sCqcPopup[1](null); };
   },[]);
   React.useEffect(function(){ if(window.CRM&&seasonId) window.CRM.setSeason(seasonId); },[seasonId]);
-  var inLeads=!!LEADS_FAMILY[sTab[0]];
+  var tab=sTab[0], leadKey=sLeadKey[0];
   function leadActive(item){
-    if(item.dest!==sTab[0]) return false;
-    var eff=sLeadKey[0]||(item.dest==='leads'?'ws':item.dest==='inbox'?'inbox':item.dest==='funnel'?'board':'');
+    if(item.dest!==tab) return false;
+    var eff=leadKey||(item.dest==='leads'?'ws':item.dest==='inbox'?'inbox':item.dest==='funnel'?'board':'');
     return (item.key||'')===(eff||'');
   }
+  function navItem(k,label,active,onClick){
+    return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},label);
+  }
+  function goTab(id){ if(window.CRM&&window.CRM.setTab) window.CRM.setTab(id); }
+  function goLead(item){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); }
   return ce(React.Fragment,null,
-    ce('div',{style:{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}},
-      /* Toned-green topbar band carrying the lifted CRM tab nav. Class 'crmv' so the
-         scoped .crm-nav/.ultabs styles apply; bg = --sidebar so the light-green tab text reads. */
-      ce('div',{className:'crmv',style:{flexShrink:0,height:50,minHeight:50,maxHeight:50,overflow:'hidden',background:'var(--sidebar)',display:'flex',alignItems:'stretch',padding:'0 16px',borderBottom:'1px solid rgba(0,0,0,.15)'},dangerouslySetInnerHTML:{__html:sHdr[0]}}),
-      /* Leads sub-nav — only inside the Leads section. Buttons drive crm.js via leadNav. */
-      inLeads&&ce('div',{className:'crmv',style:{flexShrink:0,display:'flex',gap:2,alignItems:'center',padding:'0 12px',height:40,minHeight:40,background:'var(--bg2)',borderBottom:'1px solid var(--border)',overflowX:'auto',whiteSpace:'nowrap'}},
-        LEADS_SUBNAV.map(function(item){
-          var on=leadActive(item);
-          return ce('span',{key:item.dest+':'+item.key,onClick:function(){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); },
-            style:{cursor:'pointer',fontSize:12,fontWeight:on?600:500,padding:'6px 12px',borderRadius:7,color:on?'#fff':'var(--text2)',background:on?'var(--accent)':'transparent',flexShrink:0}},item.label);
-        })
+    ce('div',{className:'crmv',style:{display:'flex',height:'100vh',overflow:'hidden'}},
+      /* Left sidebar — host-rendered nav using crm.js's own .sidebar/.nav-* classes. */
+      ce('div',{className:'sidebar',style:{overflowY:'auto'}},
+        ce('div',{className:'logo'},
+          ce('div',{className:'logo-name'},'DalOS Commercial'),
+          ce('div',{className:'logo-crop'},ce('span',{className:'crop-dot'}),'Commercial · 2025/26')
+        ),
+        ce('div',{className:'nav-label'},'Tracking & Claims'),
+        MAIN_NAV.map(function(n){ return navItem('m-'+n.id,n.label,tab===n.id,function(){goTab(n.id);}); }),
+        ce('div',{className:'nav-label'},'Lead Generation'),
+        LEADS_SUBNAV.map(function(it){ return navItem('l-'+it.dest+'-'+it.key,it.label,leadActive(it),function(){goLead(it);}); }),
+        isAdmin?ce('div',{className:'nav-label',key:'setup-lbl'},'Setup'):null,
+        isAdmin?navItem('m-regions','Region rules',tab==='regions',function(){goTab('regions');}):null,
+        ce('div',{className:'nav-spacer',key:'spacer'}),
+        ce('a',{key:'switch',href:WORKSPACE_URL,className:'nav-item',style:{textDecoration:'none'}},'‹ Switch app'),
+        ce('div',{key:'foot',style:{padding:'10px 18px 4px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+          ce('span',{className:'staging-badge'},'staging')
+        ),
+        ce('div',{key:'user',style:{padding:'6px 18px 2px',fontSize:11,color:'var(--sidebar-muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},cu.name||'')
       ),
-      /* Content root — crm.js mounts template() (.subbar + .page) here. Flex column so .page scrolls. */
-      ce('div',{className:'crmv',ref:ref,style:{flex:1,minHeight:0,display:'flex',flexDirection:'column'}})
+      /* Content root — crm.js mounts template() (.subbar + .page) here (descendant of .crmv
+         so scoped styles apply). Flex column so .page scrolls internally. */
+      ce('div',{ref:ref,style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}})
     ),
     sPopup[0]&&ce(InspPreviewModal,{popup:sPopup[0],onClose:function(){sPopup[1](null);}}),
     sCqcPopup[0]&&ce(CqcPreviewModal,{popup:sCqcPopup[0],config:cfg,onClose:function(){sCqcPopup[1](null);}})
