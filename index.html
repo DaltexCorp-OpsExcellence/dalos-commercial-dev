@@ -638,7 +638,7 @@ function CRMHost(props){
     ce('div',{style:{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}},
       /* Toned-green topbar band carrying the lifted CRM tab nav. Class 'crmv' so the
          scoped .crm-nav/.ultabs styles apply; bg = --sidebar so the light-green tab text reads. */
-      ce('div',{className:'crmv',style:{flexShrink:0,height:50,background:'var(--sidebar)',display:'flex',alignItems:'stretch',padding:'0 16px',borderBottom:'1px solid rgba(0,0,0,.15)'},dangerouslySetInnerHTML:{__html:sHdr[0]}}),
+      ce('div',{className:'crmv',style:{flexShrink:0,height:50,minHeight:50,maxHeight:50,overflow:'hidden',background:'var(--sidebar)',display:'flex',alignItems:'stretch',padding:'0 16px',borderBottom:'1px solid rgba(0,0,0,.15)'},dangerouslySetInnerHTML:{__html:sHdr[0]}}),
       /* Content root — crm.js mounts template() (.subbar + .page) here. Flex column so .page scrolls. */
       ce('div',{className:'crmv',ref:ref,style:{flex:1,minHeight:0,display:'flex',flexDirection:'column'}})
     ),
