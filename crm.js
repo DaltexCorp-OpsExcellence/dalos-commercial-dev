@@ -2237,8 +2237,11 @@ window.CRM = (function(){
   function init(opts){
     SB=opts.supabase; SEASON=opts.seasonId; IS_ADMIN=!!opts.isAdmin; USER=opts.currentUser||null; ROOT=opts.root; MOUNTED=true;
     PERMS=opts.perms||{};
-    /* perm modifier classes on the .crmv root drive CSS visibility of write affordances */
-    if(ROOT&&ROOT.classList){ ROOT.classList.toggle('perm-ro-crm',!canEditCRM()); ROOT.classList.toggle('perm-no-manage-leads',!canManageLeads()); ROOT.classList.toggle('perm-no-lead-status',!canEditLeadStatus()); }
+    /* perm modifier classes drive CSS visibility of write affordances. They must sit on the .crmv
+       element the stylesheet targets — which is ROOT in Vision but a .crmv ANCESTOR of ROOT in the
+       Commercial host (ROOT is an inner content div). Resolve to the nearest .crmv either way. */
+    var permHost=(ROOT&&ROOT.classList&&ROOT.classList.contains('crmv'))?ROOT:((ROOT&&ROOT.closest&&ROOT.closest('.crmv'))||ROOT);
+    if(permHost&&permHost.classList){ permHost.classList.toggle('perm-ro-crm',!canEditCRM()); permHost.classList.toggle('perm-no-manage-leads',!canManageLeads()); permHost.classList.toggle('perm-no-lead-status',!canEditLeadStatus()); }
     CONFIG=opts.config||null; ON_OPEN_CQC=opts.onOpenCqc||null; ON_HEADER=opts.onHeader||null; ON_TAB=opts.onTab||null;
     currentTab='dashboard'; currentRegion='all'; currentProduct='all'; currentQuery=''; showAllSubs=false; pulseOpen=true; resetPages();
     if(PENDING_TAB){ currentTab=PENDING_TAB; PENDING_TAB=null; }   /* sidebar deep-link into a Leads tab on first mount */
