@@ -609,6 +609,23 @@ function loadCommercialConfig(){
    CRMHost — mirrors Vision's CRMView mount pattern (cfgRef + preview globals),
    but standalone: no onHeader/onTab, so crm.js renders its own full shell.
    ════════════════════════════════════════════════════════════════════════════ */
+/* Leads sub-view navigation. In Vision this lives in the shell sidebar ("Leads
+   Managements" group) which calls window.CRM.leadNav(dest,key); crm.js's own
+   leadTabBar() is dead code (defined, never called). Standalone must provide it or
+   only the default Workspace view is reachable. Mirrors crm.js leadTabBar's T set. */
+var LEADS_FAMILY={leads:1,inbox:1,funnel:1,campaigns:1};
+var LEADS_SUBNAV=[
+  {dest:'leads',key:'ws',label:'Workspace'},
+  {dest:'leads',key:'enr',label:'Enrichment'},
+  {dest:'leads',key:'rej',label:'Returned'},
+  {dest:'inbox',key:'inbox',label:'Lead inbox'},
+  {dest:'inbox',key:'pip',label:'My pipeline'},
+  {dest:'leads',key:'cap',label:'Capture'},
+  {dest:'campaigns',key:'',label:'Campaigns'},
+  {dest:'funnel',key:'board',label:'Funnel'},
+  {dest:'funnel',key:'conv',label:'Conversion'}
+];
+
 function CRMHost(props){
   var ref=React.useRef(null);
   var cfg=props.config||{};
@@ -618,6 +635,8 @@ function CRMHost(props){
   var sPopup=useState(null);
   var sCqcPopup=useState(null);
   var sHdr=useState('');  /* crm.js lifts its tab-nav HTML here via onHeader (same as Vision's shell topbar) */
+  var sTab=useState('dashboard');   /* current CRM tab, mirrored via onTab */
+  var sLeadKey=useState('');        /* active leads sub-view key (ws/enr/rej/inbox/pip/cap/board/conv) */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
   React.useEffect(function(){
     injectCrmCss();
@@ -625,20 +644,36 @@ function CRMHost(props){
       /* onHeader is REQUIRED standalone: crm.js's template() renders no in-island tab bar and
          its #viewTabs fallback only fires if the host places that element inside ROOT (which
          init's innerHTML wipes). Without onHeader the whole top nav renders nowhere and only
-         the Dashboard is reachable. We mirror Vision (index.html CRMView → setCrmHdr). */
+         the Dashboard is reachable. onTab mirrors the active tab/lead-view for the leads sub-nav.
+         We mirror Vision (index.html CRMView → setCrmHdr / setCrmTab / setCrmLeadKey). */
       window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg,
-        onHeader:function(html){ sHdr[1](html||''); }});
+        onHeader:function(html){ sHdr[1](html||''); },
+        onTab:function(t,k){ sTab[1](t); sLeadKey[1](k||''); }});
       window.openInspPreviewGlobal=function(id){loadInspPreview(id,sPopup[1],cfgRef.current);};
       window.openCqcPreviewGlobal=function(id){loadCqcPreview(id,sCqcPopup[1],cfgRef.current);};
     }
     return function(){ if(window.CRM) window.CRM.teardown(); window.openInspPreviewGlobal=function(){}; window.openCqcPreviewGlobal=function(){}; sPopup[1](null); sCqcPopup[1](null); };
   },[]);
   React.useEffect(function(){ if(window.CRM&&seasonId) window.CRM.setSeason(seasonId); },[seasonId]);
+  var inLeads=!!LEADS_FAMILY[sTab[0]];
+  function leadActive(item){
+    if(item.dest!==sTab[0]) return false;
+    var eff=sLeadKey[0]||(item.dest==='leads'?'ws':item.dest==='inbox'?'inbox':item.dest==='funnel'?'board':'');
+    return (item.key||'')===(eff||'');
+  }
   return ce(React.Fragment,null,
     ce('div',{style:{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}},
       /* Toned-green topbar band carrying the lifted CRM tab nav. Class 'crmv' so the
          scoped .crm-nav/.ultabs styles apply; bg = --sidebar so the light-green tab text reads. */
       ce('div',{className:'crmv',style:{flexShrink:0,height:50,minHeight:50,maxHeight:50,overflow:'hidden',background:'var(--sidebar)',display:'flex',alignItems:'stretch',padding:'0 16px',borderBottom:'1px solid rgba(0,0,0,.15)'},dangerouslySetInnerHTML:{__html:sHdr[0]}}),
+      /* Leads sub-nav — only inside the Leads section. Buttons drive crm.js via leadNav. */
+      inLeads&&ce('div',{className:'crmv',style:{flexShrink:0,display:'flex',gap:2,alignItems:'center',padding:'0 12px',height:40,minHeight:40,background:'var(--bg2)',borderBottom:'1px solid var(--border)',overflowX:'auto',whiteSpace:'nowrap'}},
+        LEADS_SUBNAV.map(function(item){
+          var on=leadActive(item);
+          return ce('span',{key:item.dest+':'+item.key,onClick:function(){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); },
+            style:{cursor:'pointer',fontSize:12,fontWeight:on?600:500,padding:'6px 12px',borderRadius:7,color:on?'#fff':'var(--text2)',background:on?'var(--accent)':'transparent',flexShrink:0}},item.label);
+        })
+      ),
       /* Content root — crm.js mounts template() (.subbar + .page) here. Flex column so .page scrolls. */
       ce('div',{className:'crmv',ref:ref,style:{flex:1,minHeight:0,display:'flex',flexDirection:'column'}})
     ),
