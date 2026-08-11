@@ -15,7 +15,7 @@
 window.CRM = (function(){
   var SB=null, SEASON=null, IS_ADMIN=false, USER=null, ROOT=null, MOUNTED=false;
   var CONFIG=null, ON_OPEN_CQC=null, ON_HEADER=null, ON_TAB=null, PENDING_TAB=null;
-  var SHIPMENTS=[], REGIONS=[], regionLabel={}, regionOwner={};
+  var SHIPMENTS=[], REDIR_IN=[], REGIONS=[], regionLabel={}, regionOwner={};
   var COUNTRY_REGION={}, REGION_OVERRIDES={country:{},client:{},shipment:{}}, BAND_MAP={};
   /* 13 countries served by >1 region — can't auto-resolve; kept for the admin panel flag. */
   var COUNTRY_OVERLAP={bahrain:['cis','ne'],canada:['cis','ga'],jibouti:['cis','ga'],jordan:['cis','ga'],panama:['cis','ga'],russia:['cis','go'],ksa:['cis','ne'],slovenia:['cis','ne','uk'],kuwait:['ne','ga'],qatar:['ne','ga'],'south africa':['ne','ga'],spain:['ne','ga'],uae:['ne','ga']};
@@ -118,7 +118,7 @@ window.CRM = (function(){
   function hasClaim(s){ return !!s.claim; }
   function isFlagged(s){ return !!(s.cqc && s.cqc.flag); }
   /* a returned container is never billable-clean, whatever its claim/flag state */
-  function isClean(s){ return !s.claim && !isFlagged(s) && s.status!=='returned'; }
+  function isClean(s){ return !s.redirectedIn && !s.claim && !isFlagged(s) && s.status!=='returned'; }
   /* Severity used for "worst score first". A CQC score is a measurement; a CRM
      grade is a judgement made because no CQC arrived. They share a scale, so at
      equal severity the measured container is nudged ahead (+0.5) — confirmed
@@ -196,7 +196,8 @@ window.CRM = (function(){
     var list=filtered?visibleShipments().filter(shipFilterMatch):visibleShipments();
     var cqcCount=list.filter(function(s){return s.coverage==='cqc';}).length;
     var gradedCount=list.filter(function(s){return s.coverage==='graded';}).length;
-    var covered=cqcCount+gradedCount, covPct=list.length?Math.round(covered/list.length*100):0;
+    var qcBase=list.filter(function(s){return !s.redirectedIn;}).length;   /* redirected-in goods aren't QC subjects — keep them out of the coverage % */
+    var covered=cqcCount+gradedCount, covPct=qcBase?Math.round(covered/qcBase*100):0;
     var openClaims=list.filter(function(s){return s.claim&&s.claim.status==='open';}).length;
     var noData=list.filter(function(s){return s.coverage==='none';}).length;
     g.innerHTML=
@@ -381,6 +382,16 @@ window.CRM = (function(){
         [['eta_desc','Newest ETA'],['eta_asc','Oldest ETA'],['score_desc','Worst score first'],['gap_desc','Biggest gap first']].map(function(o){return '<option value="'+o[0]+'"'+(shipView.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+
       '</select></div>';
     var rows=slice.map(function(s){
+      if(s.redirectedIn){
+        return '<tr class="click" role="button" tabindex="0" data-crm-act="openShipDetail" data-crm-key="'+esc(s.key)+'">'+
+          '<td><span class="lot">'+esc(s.cn)+'</span> <span class="badge b-neutral" style="border-color:var(--green-border);color:var(--accent);background:var(--green-bg)" title="Redirected in from '+esc(s.originClient)+'">Redirected in</span></td>'+
+          '<td>'+esc(s.client)+'<div class="cell-sub">'+esc(s.sub)+' · '+esc(regionLabel[s.region]||s.region)+'</div><div class="cell-sub">↩ '+esc(s.originClient)+' · '+esc(s.redirectRef||'')+(s.invoice?' · <span class="lot">new inv '+esc(s.invoice)+'</span>':' · <span title="fill it in the redirect">no new inv</span>')+'</div></td>'+
+          '<td>'+esc(shipProduct(s))+'</td><td>'+esc(s.varieties?s.varieties.join(' / '):s.variety)+'</td>'+
+          '<td class="cell-sub">—</td><td>'+statusBadge(s.status,s.statusLabel)+'</td>'+
+          '<td><span class="cell-sub">—</span></td><td class="lot" style="color:var(--text2)">—</td>'+
+          '<td><span class="cell-sub">—</span></td>'+
+          '<td class="right"><button class="btn btn-secondary btn-sm" data-crm-act="openShipDetail" data-crm-key="'+esc(s.key)+'">View</button></td></tr>';
+      }
       return '<tr class="click" role="button" tabindex="0" data-crm-act="openShipDetail" data-crm-key="'+esc(s.key)+'">'+
         '<td><span class="lot">'+esc(s.cn)+'</span>'+(s.split?' <span class="sc-split">split</span>':'')+'</td>'+
         '<td>'+esc(s.client)+'<div class="cell-sub">'+esc(s.sub)+' · '+esc(regionLabel[s.region]||s.region)+'</div></td>'+
@@ -398,7 +409,7 @@ window.CRM = (function(){
   /* ── Grading queue ── */
   function renderGradingQueue(){
     var vc=$('viewContent'); if(!vc) return;
-    var list=visibleShipments().filter(noCqc);
+    var list=visibleShipments().filter(function(s){return noCqc(s)&&!s.redirectedIn;});
     var head='<div class="section-title"><span class="section-title-bar"></span>Grading queue <span class="section-count">'+list.length+' containers without a CQC</span></div>';
     if(!list.length){ vc.innerHTML=head+'<div class="table-wrap"><div class="empty-state">Every container in this scope has a CQC report — nothing to grade.</div></div>'; return; }
     list.sort(function(a,b){ return (needsGrading(b)?1:0)-(needsGrading(a)?1:0) || b.sortKey-a.sortKey; });
@@ -679,7 +690,7 @@ window.CRM = (function(){
   }
   function rrDraftById(id){ for(var i=0;i<RR_DRAFT.length;i++) if(RR_DRAFT[i].id===id) return RR_DRAFT[i]; return null; }
   /* app-wide region = committed (LIVE) so other tabs never shift mid-edit */
-  function applyV2Regions(){ if(!CRM_REGION_RULES_V2||!RR_LIVE.length) return; SHIPMENTS.forEach(function(s){ s.region=rrResolve(RR_LIVE,s).region; }); }
+  function applyV2Regions(){ if(!CRM_REGION_RULES_V2||!RR_LIVE.length) return; SHIPMENTS.forEach(function(s){ if(s.redirectedIn) return; s.region=rrResolve(RR_LIVE,s).region; }); }
   /* the in-app engine toggle shown on the Region screen (admin only) */
   function rrToggleBar(){
     if(!IS_ADMIN) return '';
@@ -943,7 +954,17 @@ window.CRM = (function(){
     }
     return '<div class="hint" style="margin-top:14px">Loading composition rows…</div>';
   }
+  function renderRedirInDetail(s){
+    var head='<div class="dlv-head"><div><div class="dlv-id">'+esc(s.cn)+'</div><div class="dlv-meta">'+esc(s.client)+' · '+esc(s.sub)+' · '+esc(regionLabel[s.region]||s.region)+'</div></div>'+statusBadge(s.status,s.statusLabel)+'</div>';
+    var note='<div class="scope-lock" style="border-color:var(--green-border)">↩ Redirected in from <b>'+esc(s.originClient)+'</b>'+(s.originSub&&s.originSub!=='—'?' / '+esc(s.originSub):'')+' · origin container <span class="mono">'+esc(s.originCn||s.cn)+'</span> · '+esc(s.redirectRef||'')+(s.invoice?' · new invoice <b class="mono">'+esc(s.invoice)+'</b>':' · new invoice not issued yet')+'.</div>';
+    var timeline='<div class="section-title" style="margin-top:14px"><span class="section-title-bar"></span>Lifecycle</div><div class="audit" id="dlvTimeline"><div class="hint">Loading history…</div></div>';
+    var comp='<div id="dlvComp">'+shipCompHtml(s)+'</div>';
+    var redir=dSec('Redirect',dCell('Target client',s.client)+dCell('Target sub-client',s.sub)+dCell('New invoice no',s.invoice||'—',true)+dCell('From (origin)',s.originClient)+dCell('Origin container',s.originCn||s.cn,true)+dCell('Redirect ref',s.redirectRef||'—',true)+dCell('Region',regionLabel[s.region]||s.region));
+    var qty=dSec('Quantities',dCell('Cartons',s.cartons.toLocaleString(),true)+dCell('Net weight',tonCell(s.netTons),true));
+    return head+note+timeline+comp+redir+qty;
+  }
   function renderShipDetail(s){
+    if(s.redirectedIn) return renderRedirInDetail(s);
     var head='<div class="dlv-head"><div><div class="dlv-id">'+esc(s.cn)+'</div><div class="dlv-meta">'+esc(s.client)+' · '+esc(s.sub)+' · '+esc(regionLabel[s.region]||s.region)+'</div></div>'+statusBadge(s.status,s.statusLabel)+'</div>';
     var lock='<div class="scope-lock">🔒 Full shipment record, shown inside CRM and scoped to your region.</div>';
     var actions='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
@@ -1530,6 +1551,41 @@ window.CRM = (function(){
     }
     return page(0);
   }
+  /* ── redirected-IN goods: synthesise a target-side shipment per active redirect.
+     CRM-owned only — we NEVER write shipments (the sync job orphan-deletes). These
+     rows land on the TARGET client/sub/region carrying the destination invoice, and
+     are injected into SHIPMENTS so they count in volume / Invoices / scorecards.
+     coverage:'redirect' + redirectedIn flag keep them OUT of QC/grading/clean. ── */
+  function mapRedirIn(x){
+    var rws=(x.crm_redirection_rows||[]).map(function(r){ return {variety:r.variety||'—', mix:'Single', farm:r.farm||'—', ph:r.packhouse||'—', ctype:r.carton_type||'—', carta:r.carta||'', cartons:num(r.cartons), netTons:num(r.net_tons)}; });
+    var vs=Array.from(new Set(rws.map(function(r){return r.variety;}).filter(function(v){return v&&v!=='—';})));
+    return {
+      key:'RDRIN:'+x.id, redirectedIn:true, redirectId:x.id, redirectRef:x.redirect_ref,
+      cn:x.container_number||'—', originCn:x.container_number||'',
+      originClient:x.origin_client||'—', originSub:x.origin_sub_client||'—', originRegion:x.origin_region_id||null,
+      client:x.target_client||'—', sub:x.target_sub_client||'—', country:x.country||'',
+      region:x.target_region_id||'unassigned',
+      product:x.product_id?(x.product_id.charAt(0).toUpperCase()+x.product_id.slice(1)):'—', productId:x.product_id||null,
+      variety:vs[0]||'—', varieties:vs.length>1?vs:null,
+      cartons:num(x.total_cartons), pallets:0, netTons:num(x.total_net_tons), grossKg:0,
+      vessel:'—', shippingLine:'—', port:'—', departurePort:'—',
+      eta:'', etaRaw:null, etd:'', arrival:'',
+      invoice:x.invoice_no||'', booking:'', shipper:'', agent:'',
+      brand:'', size:'', dclass:'', trace:'', farmSource:'',
+      split:false, rowCount:rws.length, cartaCount:0,
+      status:'redirected_in', statusLabel:'Redirected in',
+      sortKey:dayKey(x.created_at), createdAt:x.created_at, scope:x.scope,
+      coverage:'redirect', insp:null, cqc:null, graded:null, claim:null, rows:rws, packHouses:[],
+      cqcId:null, inspId:null, gradingId:null, claimId:null, claimRefRaw:null, bl:''
+    };
+  }
+  function loadRedirIn(){
+    return SB.from('crm_redirections')
+      .select('id,redirect_ref,status,anchor,product_id,source_invoice_no,container_number,origin_client,origin_sub_client,origin_region_id,target_client,target_sub_client,target_region_id,country,invoice_no,total_cartons,total_net_tons,scope,created_at,crm_redirection_rows(variety,farm,packhouse,carton_type,carta,cartons,net_tons)')
+      .eq('season_id',SEASON).neq('status','cancelled')
+      .then(function(res){ if(res&&res.error) throw res.error; REDIR_IN=((res&&res.data)||[]).map(mapRedirIn); })
+      .catch(function(){ REDIR_IN=[]; });   /* redirected-in is additive — never block the CRM if it fails */
+  }
   /* generic paged fetch — PostgREST silently caps unpaged reads at 1000 rows (P3). makeQuery() returns a fresh builder each page. */
   function crmFetchAll(makeQuery){
     var out=[];
@@ -1866,8 +1922,11 @@ window.CRM = (function(){
     if(!conts.length) return;
     var c0=conts[0];
     var ctn=conts.reduce(function(a,s){return a+(s.cartons||0);},0), tons=conts.reduce(function(a,s){return a+(s.netTons||0);},0);
-    var head='<div class="dlv-head"><div><div class="dlv-id" style="font-family:var(--font-mono)">Invoice '+esc(inv)+'</div><div class="dlv-meta">'+esc(c0.client)+' · '+esc(regionLabel[c0.region]||c0.region)+' · '+conts.length+' container'+(conts.length>1?'s':'')+'</div></div></div>';
-    var actions='<div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap"><button class="btn btn-primary btn-sm" data-crm-act="invClaim" data-crm-key="'+esc(inv)+'">Raise claim →</button><button class="btn btn-secondary btn-sm" data-crm-act="invRedirect" data-crm-key="'+esc(inv)+'">Redirect →</button></div>';
+    var allRedir=conts.every(function(s){return s.redirectedIn;});
+    var head='<div class="dlv-head"><div><div class="dlv-id" style="font-family:var(--font-mono)">Invoice '+esc(inv)+'</div><div class="dlv-meta">'+esc(c0.client)+' · '+esc(regionLabel[c0.region]||c0.region)+' · '+conts.length+' container'+(conts.length>1?'s':'')+(allRedir?' · redirected in':'')+'</div></div></div>';
+    var actions=allRedir
+      ? '<div class="scope-lock" style="border-color:var(--green-border);margin:12px 0">↩ Redirected in from <b>'+esc(c0.originClient)+'</b> · '+esc(c0.redirectRef||'')+'. This invoice was created by the redirect — manage it from the <b>Redirects</b> tab.</div>'
+      : '<div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap"><button class="btn btn-primary btn-sm" data-crm-act="invClaim" data-crm-key="'+esc(inv)+'">Raise claim →</button><button class="btn btn-secondary btn-sm" data-crm-act="invRedirect" data-crm-key="'+esc(inv)+'">Redirect →</button></div>';
     var kpis=kpiStrip([['Cartons',ctn.toLocaleString(),''],['Net weight',tonCell(tons),''],['Containers',String(conts.length),'']]);
     var cl=conts.map(function(s){ return '<tr class="click" role="button" tabindex="0" data-crm-act="openShipDetail" data-crm-key="'+esc(s.key)+'"><td><span class="lot">'+esc(s.cn)+'</span></td><td>'+esc(s.varieties?s.varieties.join(' / '):s.variety)+'</td><td class="right">'+(s.cartons||0).toLocaleString()+'</td><td class="right">'+tonCell(s.netTons)+'</td></tr>'; }).join('');
     var tbl='<div class="section-title" style="margin-top:12px"><span class="section-title-bar"></span>Containers</div><div class="table-wrap"><table class="wl"><thead><tr><th>Container</th><th>Variety</th><th class="right">Cartons</th><th class="right">Net t</th></tr></thead><tbody>'+cl+'</tbody></table></div>';
@@ -2158,7 +2217,7 @@ window.CRM = (function(){
   }
 
   /* ── lifecycle ── */
-  function reload(){ invRedirMap=null; return Promise.all([loadVoyages(),loadClaimSettled()]).then(function(){ if(CRM_REGION_RULES_V2) applyV2Regions(); render(); }).catch(function(e){ var vc=$('viewContent'); if(vc) vc.innerHTML='<div class="empty-state">Failed to load CRM data — '+esc(e&&e.message||e)+'</div>'; }); }
+  function reload(){ invRedirMap=null; return Promise.all([loadVoyages(),loadClaimSettled(),loadRedirIn()]).then(function(){ if(CRM_REGION_RULES_V2) applyV2Regions(); SHIPMENTS=SHIPMENTS.concat(REDIR_IN); render(); }).catch(function(e){ var vc=$('viewContent'); if(vc) vc.innerHTML='<div class="empty-state">Failed to load CRM data — '+esc(e&&e.message||e)+'</div>'; }); }
   function init(opts){
     SB=opts.supabase; SEASON=opts.seasonId; IS_ADMIN=!!opts.isAdmin; USER=opts.currentUser||null; ROOT=opts.root; MOUNTED=true;
     CONFIG=opts.config||null; ON_OPEN_CQC=opts.onOpenCqc||null; ON_HEADER=opts.onHeader||null; ON_TAB=opts.onTab||null;
