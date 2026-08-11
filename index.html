@@ -616,25 +616,45 @@ function loadCommercialConfig(){
    for highlighting. crm.js's leadTabBar() is dead code; Vision drove the same nav
    from its shell sidebar. ── */
 var LEADS_FAMILY={leads:1,inbox:1,funnel:1,campaigns:1};
+/* 16x16 currentColor icon paths (Bootstrap Icons, MIT). One or more <path d> per key. */
+var ICONS={
+  dashboard:['M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5zm8 0A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5zm-8 8A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5zm8 0A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5z'],
+  shipments:['M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5 8 5.961 14.154 3.5zM15 4.239l-6.5 2.6v7.922l6.5-2.6zM7.5 14.762V6.838L1 4.239v7.923zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874-.002.001a.5.5 0 0 1-.368 0l-.002-.001L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464z'],
+  invoices:['M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1M4.5 9a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1zm0 3a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1zm0-6a.5.5 0 0 1 0-1h3a.5.5 0 0 1 0 1z'],
+  claims:['M14.778.085A.5.5 0 0 1 15 .5V8a.5.5 0 0 1-.314.464L14.5 8l.186.464-.003.001-.006.003-.023.009a12 12 0 0 1-.397.15c-.264.095-.631.223-1.047.35-.816.252-1.879.523-2.71.523-.847 0-1.548-.28-2.158-.525l-.028-.01C7.68 9.075 7.14 8.86 6.5 8.86c-.7 0-1.638.23-2.437.477A20 20 0 0 0 3 9.605V15.5a.5.5 0 0 1-1 0V.5a.5.5 0 0 1 1 0v.033a15 15 0 0 1 1.617-.503C5.415.29 6.352.06 7.052.06c.7 0 1.238.213 1.75.417l.027.01c.61.245 1.312.526 2.16.526.687 0 1.65-.22 2.454-.47a19 19 0 0 0 1.303-.454l.017-.007.003-.002'],
+  redirects:['M1 11.5a.5.5 0 0 0 .5.5h11.793l-3.147 3.146a.5.5 0 0 0 .708.708l4-4a.5.5 0 0 0 0-.708l-4-4a.5.5 0 0 0-.708.708L13.293 11H1.5a.5.5 0 0 0-.5.5m14-7a.5.5 0 0 1-.5.5H2.707l3.147 3.146a.5.5 0 1 1-.708.708l-4-4a.5.5 0 0 1 0-.708l4-4a.5.5 0 1 1 .708.708L2.707 4H14.5a.5.5 0 0 1 .5.5'],
+  grading:['M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187z'],
+  clean:['M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0m-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z'],
+  workspace:['M2.5 0A2.5 2.5 0 0 0 0 2.5v11A2.5 2.5 0 0 0 2.5 16h11a2.5 2.5 0 0 0 2.5-2.5v-11A2.5 2.5 0 0 0 13.5 0zM4 3a.5.5 0 0 1 .5.5V10a.5.5 0 0 1-1 0V3.5A.5.5 0 0 1 4 3m4 0a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-1 0v-3A.5.5 0 0 1 8 3m4 0a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-1 0v-8A.5.5 0 0 1 12 3'],
+  enrichment:['M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12z','M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z'],
+  returned:['M14.5 1.5a.5.5 0 0 1 .5.5v4.8a2.5 2.5 0 0 1-2.5 2.5H2.707l3.347 3.346a.5.5 0 0 1-.708.708l-4.2-4.2a.5.5 0 0 1 0-.708l4-4a.5.5 0 1 1 .708.708L2.707 8.3H12.5A1.5 1.5 0 0 0 14 6.8V2a.5.5 0 0 1 .5-.5'],
+  inbox:['M4.98 4a.5.5 0 0 0-.39.188L1.54 8H6a.5.5 0 0 1 .5.5 1.5 1.5 0 1 0 3 0A.5.5 0 0 1 10 8h4.46l-3.05-3.812A.5.5 0 0 0 11.02 4zm-1.17-.437A1.5 1.5 0 0 1 4.98 3h6.04a1.5 1.5 0 0 1 1.17.563l3.7 4.625a.5.5 0 0 1 .106.374l-.39 3.124A1.5 1.5 0 0 1 14.117 13H1.883a1.5 1.5 0 0 1-1.489-1.314l-.39-3.124a.5.5 0 0 1 .106-.374z'],
+  pipeline:['M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1zm2-2a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1zM0 13a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 16 13V6a1.5 1.5 0 0 0-1.5-1.5h-13A1.5 1.5 0 0 0 0 6z'],
+  capture:['M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0','M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1m9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0'],
+  campaigns:['M13 2.5a1.5 1.5 0 0 1 3 0v11a1.5 1.5 0 0 1-3 0zm-1 .724c-2.067.95-4.539 1.481-7 1.656v6.237a25 25 0 0 1 1.088.085c2.053.204 4.038.668 5.912 1.56zm-8 7.841V4.934c-.68.027-1.399.043-2.008.053A2.02 2.02 0 0 0 0 7v2c0 1.106.896 2 2 2 .075 0 .17 0 .282.002z','M4.098 14.222a1.5 1.5 0 0 1-1.83-1.06L1.517 10.5h1.51q.062.147.115.298l.618 2.19a.5.5 0 0 0 .966-.276z'],
+  funnel:['M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5z'],
+  conversion:['M0 0h1v15h15v1H0zm10 3.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V4.9l-3.613 4.417a.5.5 0 0 1-.74.037L7.06 6.767l-3.656 5.027a.5.5 0 0 1-.808-.588l4-5.5a.5.5 0 0 1 .758-.06l2.609 2.61L13.445 4H10.5a.5.5 0 0 1-.5-.5'],
+  globe:['M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m7.5-6.923c-.67.204-1.335.82-1.887 1.855A8 8 0 0 0 5.145 4H7.5zM4.09 4a9.3 9.3 0 0 1 .64-1.539 7 7 0 0 1 .597-.933A7.03 7.03 0 0 0 2.255 4zm-.582 3.5c.03-.877.138-1.718.312-2.5H1.674a7 7 0 0 0-.656 2.5zM4.847 5a12.5 12.5 0 0 0-.338 2.5H7.5V5zM8.5 5v2.5h2.99a12.5 12.5 0 0 0-.337-2.5zM4.51 8.5a12.5 12.5 0 0 0 .337 2.5H7.5V8.5zm3.99 0V11h2.653c.187-.765.306-1.608.338-2.5zM5.145 12q.208.58.468 1.068c.552 1.035 1.218 1.65 1.887 1.855V12zm.182 2.472a7 7 0 0 1-.597-.933A9.3 9.3 0 0 1 4.09 12H2.255a7 7 0 0 0 3.072 2.472M3.82 11a13.7 13.7 0 0 1-.312-2.5h-2.49c.062.89.291 1.733.656 2.5zm6.853 3.472A7 7 0 0 0 13.745 12H11.91a9.3 9.3 0 0 1-.64 1.539 7 7 0 0 1-.597.933M8.5 12v2.923c.67-.204 1.335-.82 1.887-1.855q.26-.487.468-1.068zm3.68-1h2.146c.365-.767.594-1.61.656-2.5h-2.49a13.7 13.7 0 0 1-.312 2.5m2.802-3.5a7 7 0 0 0-.656-2.5H12.18c.174.782.282 1.623.312 2.5zM11.27 2.461q.371.7.64 1.539h1.835a7 7 0 0 0-3.072-2.472c.218.284.418.598.597.933M10.855 4a8 8 0 0 0-.468-1.068C9.835 1.897 9.17 1.282 8.5 1.077V4z']
+};
 var MAIN_NAV=[
-  {id:'dashboard',label:'Dashboard'},
-  {id:'shipments',label:'Shipments'},
-  {id:'invoices',label:'Invoices'},
-  {id:'claims',label:'Claims'},
-  {id:'redirects',label:'Redirects'},
-  {id:'grading',label:'Grading'},
-  {id:'clean',label:'Clean'}
+  {id:'dashboard',label:'Dashboard',icon:'dashboard'},
+  {id:'shipments',label:'Shipments',icon:'shipments'},
+  {id:'invoices',label:'Invoices',icon:'invoices'},
+  {id:'claims',label:'Claims',icon:'claims'},
+  {id:'redirects',label:'Redirects',icon:'redirects'},
+  {id:'grading',label:'Grading',icon:'grading'},
+  {id:'clean',label:'Clean',icon:'clean'}
 ];
 var LEADS_SUBNAV=[
-  {dest:'leads',key:'ws',label:'Workspace'},
-  {dest:'leads',key:'enr',label:'Enrichment queue'},
-  {dest:'leads',key:'rej',label:'Returned by sales'},
-  {dest:'inbox',key:'inbox',label:'Lead inbox'},
-  {dest:'inbox',key:'pip',label:'My pipeline'},
-  {dest:'leads',key:'cap',label:'Capture · show mode'},
-  {dest:'campaigns',key:'',label:'Campaigns'},
-  {dest:'funnel',key:'board',label:'Funnel'},
-  {dest:'funnel',key:'conv',label:'Conversion'}
+  {dest:'leads',key:'ws',label:'Workspace',icon:'workspace'},
+  {dest:'leads',key:'enr',label:'Enrichment queue',icon:'enrichment'},
+  {dest:'leads',key:'rej',label:'Returned by sales',icon:'returned'},
+  {dest:'inbox',key:'inbox',label:'Lead inbox',icon:'inbox'},
+  {dest:'inbox',key:'pip',label:'My pipeline',icon:'pipeline'},
+  {dest:'leads',key:'cap',label:'Capture · show mode',icon:'capture'},
+  {dest:'campaigns',key:'',label:'Campaigns',icon:'campaigns'},
+  {dest:'funnel',key:'board',label:'Funnel',icon:'funnel'},
+  {dest:'funnel',key:'conv',label:'Conversion',icon:'conversion'}
 ];
 
 function CRMHost(props){
@@ -667,8 +687,9 @@ function CRMHost(props){
     var eff=leadKey||(item.dest==='leads'?'ws':item.dest==='inbox'?'inbox':item.dest==='funnel'?'board':'');
     return (item.key||'')===(eff||'');
   }
-  function navItem(k,label,active,onClick){
-    return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},label);
+  function navItem(k,label,active,onClick,iconKey){
+    var ico=ICONS[iconKey]?ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ICONS[iconKey].map(function(d,i){return ce('path',{key:i,d:d});})):null;
+    return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},ico,ce('span',null,label));
   }
   function goTab(id){ if(window.CRM&&window.CRM.setTab) window.CRM.setTab(id); }
   function goLead(item){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); }
@@ -681,11 +702,11 @@ function CRMHost(props){
           ce('div',{className:'logo-crop'},ce('span',{className:'crop-dot'}),'Commercial · 2025/26')
         ),
         ce('div',{className:'nav-label'},'Tracking & Claims'),
-        MAIN_NAV.map(function(n){ return navItem('m-'+n.id,n.label,tab===n.id,function(){goTab(n.id);}); }),
+        MAIN_NAV.map(function(n){ return navItem('m-'+n.id,n.label,tab===n.id,function(){goTab(n.id);},n.icon); }),
         ce('div',{className:'nav-label'},'Lead Generation'),
-        LEADS_SUBNAV.map(function(it){ return navItem('l-'+it.dest+'-'+it.key,it.label,leadActive(it),function(){goLead(it);}); }),
+        LEADS_SUBNAV.map(function(it){ return navItem('l-'+it.dest+'-'+it.key,it.label,leadActive(it),function(){goLead(it);},it.icon); }),
         isAdmin?ce('div',{className:'nav-label',key:'setup-lbl'},'Setup'):null,
-        isAdmin?navItem('m-regions','Region rules',tab==='regions',function(){goTab('regions');}):null,
+        isAdmin?navItem('m-regions','Region rules',tab==='regions',function(){goTab('regions');},'globe'):null,
         ce('div',{className:'nav-spacer',key:'spacer'}),
         ce('a',{key:'switch',href:WORKSPACE_URL,className:'nav-item',style:{textDecoration:'none'}},'‹ Switch app'),
         ce('div',{key:'foot',style:{padding:'10px 18px 4px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
