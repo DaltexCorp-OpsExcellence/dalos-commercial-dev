@@ -15,6 +15,19 @@
 window.CRM = (function(){
   var SB=null, SEASON=null, IS_ADMIN=false, USER=null, ROOT=null, MOUNTED=false;
   var CONFIG=null, ON_OPEN_CQC=null, ON_HEADER=null, ON_TAB=null, PENDING_TAB=null;
+  /* ── Access control (pass 1: UI gating; server-side RLS/RPC enforcement is pass 2) ──
+     PERMS injected via CRM.init({perms}) from the host, derived from the user's role (assigned in
+     Vision Admin). Gates are cosmetic — the real boundary is RLS on crm_leads / claim / grading /
+     redirection tables. can() reads PERMS only, so IS_ADMIN stays a pure DATA-SCOPE signal. */
+  var PERMS={};
+  function can(p){ return !!PERMS[p]; }
+  function canEditCRM(){ return can('editCRM'); }
+  function canManageLeads(){ return can('manageLeads'); }
+  function canEditLeadStatus(){ return can('editLeadStatus')||can('manageLeads'); }
+  function guard(p,msg){ if(can(p)) return true; toast('<b>Not permitted</b> · '+(msg||'you don’t have access for this action')); return false; }
+  function gm(fn){ return function(){ if(!guard('manageLeads','lead management (create, import, enrich, qualify, assign, campaigns) is restricted to Marketing')) return; return fn.apply(this,arguments); }; }
+  function gs(fn){ return function(){ if(!canEditLeadStatus()){ toast('<b>Not permitted</b> · you have view-only access to leads'); return; } return fn.apply(this,arguments); }; }
+  function ge(fn){ return function(){ if(!guard('editCRM','CRM edits (claims, grading, redirects) are restricted to the commercial team')) return; return fn.apply(this,arguments); }; }
   var SHIPMENTS=[], REDIR_IN=[], REGIONS=[], regionLabel={}, regionOwner={};
   var COUNTRY_REGION={}, REGION_OVERRIDES={country:{},client:{},shipment:{}}, BAND_MAP={};
   /* 13 countries served by >1 region — can't auto-resolve; kept for the admin panel flag. */
@@ -2179,6 +2192,9 @@ window.CRM = (function(){
       var t=e.target&&e.target.closest&&e.target.closest('[data-crm-act]');
       if(!t||!ROOT.contains(t)) return;
       var k=t.getAttribute('data-crm-key')||'', a=t.getAttribute('data-crm-act');
+      /* editCRM gate — claim/grade/redirect write drawers (defense-in-depth; buttons also hidden via .perm-ro-crm). Read actions (openShipDetail/openInsp/openCqc/openInvoice/drills) pass through. */
+      var CRM_WRITE_ACTS={openClaim:1,openGrade:1,dlvClaim:1,dlvGrade:1,dlvRedirect:1,invClaim:1,invRedirect:1,invEditClaim:1,invEditRedirect:1,cancelRedirect:1};
+      if(CRM_WRITE_ACTS[a] && !guard('editCRM','CRM edits (claims, grading, redirects) are restricted to the commercial team')) return;
       if(a==='openShipDetail') openShipDetail(k);
       else if(a==='openClaim') openClaim(k);
       else if(a==='openGrade') openGrade(k);
@@ -2220,6 +2236,9 @@ window.CRM = (function(){
   function reload(){ invRedirMap=null; return Promise.all([loadVoyages(),loadClaimSettled(),loadRedirIn()]).then(function(){ if(CRM_REGION_RULES_V2) applyV2Regions(); SHIPMENTS=SHIPMENTS.concat(REDIR_IN); render(); }).catch(function(e){ var vc=$('viewContent'); if(vc) vc.innerHTML='<div class="empty-state">Failed to load CRM data — '+esc(e&&e.message||e)+'</div>'; }); }
   function init(opts){
     SB=opts.supabase; SEASON=opts.seasonId; IS_ADMIN=!!opts.isAdmin; USER=opts.currentUser||null; ROOT=opts.root; MOUNTED=true;
+    PERMS=opts.perms||{};
+    /* perm modifier classes on the .crmv root drive CSS visibility of write affordances */
+    if(ROOT&&ROOT.classList){ ROOT.classList.toggle('perm-ro-crm',!canEditCRM()); ROOT.classList.toggle('perm-no-manage-leads',!canManageLeads()); ROOT.classList.toggle('perm-no-lead-status',!canEditLeadStatus()); }
     CONFIG=opts.config||null; ON_OPEN_CQC=opts.onOpenCqc||null; ON_HEADER=opts.onHeader||null; ON_TAB=opts.onTab||null;
     currentTab='dashboard'; currentRegion='all'; currentProduct='all'; currentQuery=''; showAllSubs=false; pulseOpen=true; resetPages();
     if(PENDING_TAB){ currentTab=PENDING_TAB; PENDING_TAB=null; }   /* sidebar deep-link into a Leads tab on first mount */
@@ -2470,6 +2489,7 @@ window.CRM = (function(){
   function lmMissing(l){ var m=[]; if(!l.contact) m.push('contact'); if(!l.role) m.push('role'); if(!l.band) m.push('volume'); if(!l.port) m.push('port'); return m.length?m.join(' · '):'—'; }
   function lmVal(id){ var el=$(id); if(!el) return null; var v=(el.value||'').trim(); return v||null; }
   function lmUpdate(id,patch,msg){
+    if(!canEditLeadStatus()){ toast('<b>Not permitted</b> · you have view-only access to leads'); return; }
     if(!SB){ toast('No connection.'); return; }
     patch.updated_at=new Date().toISOString();
     SB.from('crm_leads').update(patch).eq('id',id).then(function(res){
@@ -3454,36 +3474,36 @@ window.CRM = (function(){
     setShipFilter:setShipFilter, resetShipFilters:resetShipFilters, setShipSort:setShipSort, setPage:setPage,
     toggleSubs:toggleSubs, togglePulse:togglePulse, pulseGo:pulseGo, openSubDrill:openSubDrill,
     openShipDetail:openShipDetail, openInsp:openInsp, openCqc:openCqc, closeDlv:closeDlv,
-    openClaim:openClaim, openGrade:openGrade, closeModal:closeModal, requestCloseModal:requestCloseModal, saveClaim:saveClaim, saveGrade:saveGrade, cancelClaim:cancelClaim,
+    openClaim:openClaim, openGrade:openGrade, closeModal:closeModal, requestCloseModal:requestCloseModal, saveClaim:ge(saveClaim), saveGrade:ge(saveGrade), cancelClaim:ge(cancelClaim),
     setLifecycle:setLifecycle, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
     syncClaimPct:syncClaimPct, markClaimPctManual:markClaimPctManual,
-    openRedirect:openRedirect, saveRedirect:saveRedirect, setRedirScope:setRedirScope, redirClientChanged:redirClientChanged, redirRowToggle:redirRowToggle, redirPct:redirPct, redirRender:redirRender,
-    openInvoice:openInvoice, openInvClaim:openInvClaim, openInvRedirect:openInvRedirect, saveInvClaim:saveInvClaim, saveInvRedirect:saveInvRedirect, invToggle:invToggle, invPct:invPct, invRender:invRender, invRedirClientChanged:invRedirClientChanged,
-    openInvEditClaim:openInvEditClaim, openInvEditRedirect:openInvEditRedirect, invCancelClaim:invCancelClaim, invCancelRedirect:invCancelRedirect, setInvLifecycle:setInvLifecycle, crmConfirmOk:crmConfirmOk, redirectFromClaim:redirectFromClaim,
-    uploadEvidence:uploadEvidence, evOpen:evOpen, evDel:evDel,
+    openRedirect:openRedirect, saveRedirect:ge(saveRedirect), setRedirScope:setRedirScope, redirClientChanged:redirClientChanged, redirRowToggle:redirRowToggle, redirPct:redirPct, redirRender:redirRender,
+    openInvoice:openInvoice, openInvClaim:openInvClaim, openInvRedirect:openInvRedirect, saveInvClaim:ge(saveInvClaim), saveInvRedirect:ge(saveInvRedirect), invToggle:invToggle, invPct:invPct, invRender:invRender, invRedirClientChanged:invRedirClientChanged,
+    openInvEditClaim:openInvEditClaim, openInvEditRedirect:openInvEditRedirect, invCancelClaim:ge(invCancelClaim), invCancelRedirect:ge(invCancelRedirect), setInvLifecycle:setInvLifecycle, crmConfirmOk:crmConfirmOk, redirectFromClaim:ge(redirectFromClaim),
+    uploadEvidence:ge(uploadEvidence), evOpen:evOpen, evDel:ge(evDel),
     setCountryOverride:setCountryOverride, setClientOverride:setClientOverride, addClientOverrideFromForm:addClientOverrideFromForm,
     setScoreBand:setScoreBand, removeScoreBand:removeScoreBand, addScoreBandFromForm:addScoreBandFromForm,
     rrOpenDrawer:rrOpenDrawer, rrSetField:rrSetField, rrSaveRule:rrSaveRule, rrToggle:rrToggle, rrDelete:rrDelete, rrMove:rrMove,
     rrToggleDefaults:rrToggleDefaults, rrCreateFor:rrCreateFor, rrCommit:rrCommit, rrDiscard:rrDiscard, rrUndo:rrUndo,
     rrOpenAlias:rrOpenAlias, rrMapAlias:rrMapAlias, rrWhy:rrWhy, rrToggleEngine:rrToggleEngine,
-    lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:lmEnrichSave,
-    lmQualify:lmQualify, lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:lmAssignSave,
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:lmReturnSave, lmRequeueOpen:lmRequeueOpen, lmRequeueSave:lmRequeueSave, lmClaim:lmClaim, lmSearch:lmSearch, lmSetF:lmSetF,
+    lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave),
+    lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSearch:lmSearch, lmSetF:lmSetF,
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
-    leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:leadSubmitQuickAdd, leadEnrich:leadEnrich,
-    leadQualifyOpen:leadQualifyOpen, leadGate:leadGate, leadQualifySave:leadQualifySave,
-    leadAssignOpen:leadAssignOpen, leadPickRegion:leadPickRegion, leadAssignSave:leadAssignSave,
-    leadEscalateOpen:leadEscalateOpen, leadEscalate:leadEscalate,
-    leadAccept:leadAccept, leadPassOpen:leadPassOpen, leadPassCls:leadPassCls, leadPass:leadPass,
-    leadWonOpen:leadWonOpen, leadWonKind:leadWonKind, leadWonSave:leadWonSave,
-    leadImport:leadImport, leadImportPre:leadImportPre, leadImportRun:leadImportRun,
+    leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
+    leadQualifyOpen:leadQualifyOpen, leadGate:leadGate, leadQualifySave:gm(leadQualifySave),
+    leadAssignOpen:leadAssignOpen, leadPickRegion:leadPickRegion, leadAssignSave:gm(leadAssignSave),
+    leadEscalateOpen:leadEscalateOpen, leadEscalate:gs(leadEscalate),
+    leadAccept:gs(leadAccept), leadPassOpen:leadPassOpen, leadPassCls:leadPassCls, leadPass:gs(leadPass),
+    leadWonOpen:leadWonOpen, leadWonKind:leadWonKind, leadWonSave:gs(leadWonSave),
+    leadImport:leadImport, leadImportPre:leadImportPre, leadImportRun:gm(leadImportRun),
     leadSelSync:leadSelSync, leadSelAll:leadSelAll, leadSelClear:leadSelClear,
-    leadSelSync2:leadSelSync2, leadSelAll2:leadSelAll2, leadSelClear2:leadSelClear2, leadReturnAct:leadReturnAct,
-    capSave:capSave, capClear:capClear, capSetCampaign:capSetCampaign, capExport:capExport,
+    leadSelSync2:leadSelSync2, leadSelAll2:leadSelAll2, leadSelClear2:leadSelClear2, leadReturnAct:gs(leadReturnAct),
+    capSave:gm(capSave), capClear:capClear, capSetCampaign:capSetCampaign, capExport:capExport,
     capScan:capScan, capScanCancel:capScanStop, capOcrPick:capOcrPick,
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror,
-    campNew:campNew, campSave:campSave, campToggle:campToggle, campCopy:campCopy, campQr:campQr,
+    campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
     campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campRefresh:campRefresh
   };
 })();
@@ -4210,6 +4230,20 @@ function injectCrmCss(){
 .crmv{min-height:100%}
 .crmv .page{overflow:visible;padding:0 16px 40px}
 .crmv .crm-header{display:flex;justify-content:center;padding:12px 16px 0}
+
+/* ── Access-control affordances (pass 1) — perm classes set on the .crmv root in init() ──
+   perm-ro-crm: no editCRM → hide claim/grade/redirect write buttons so the CRM tabs read as
+   view-only (behaviour is also blocked via the dispatcher/ge() guards). */
+.crmv.perm-ro-crm [data-crm-act="openClaim"],
+.crmv.perm-ro-crm [data-crm-act="openGrade"],
+.crmv.perm-ro-crm [data-crm-act="dlvClaim"],
+.crmv.perm-ro-crm [data-crm-act="dlvGrade"],
+.crmv.perm-ro-crm [data-crm-act="dlvRedirect"],
+.crmv.perm-ro-crm [data-crm-act="invClaim"],
+.crmv.perm-ro-crm [data-crm-act="invRedirect"],
+.crmv.perm-ro-crm [data-crm-act="invEditClaim"],
+.crmv.perm-ro-crm [data-crm-act="invEditRedirect"],
+.crmv.perm-ro-crm [data-crm-act="cancelRedirect"]{display:none!important}
 `;
   document.head.appendChild(st);
 }

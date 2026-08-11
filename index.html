@@ -96,7 +96,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8"></script>
-<script src="crm.js?cb=1"></script>
+<script src="crm.js?cb=2"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -742,6 +742,10 @@ function CRMHost(props){
   var seasonId=props.seasonId;
   var cu=props.currentUser||{};
   var isAdmin=props.isAdmin;
+  /* Admin-only role preview (review aid): localStorage.crmPreviewRole='marketing'|'commercial'|… then
+     reload to see that role's gates with full admin data scope. No effect for non-admins. */
+  var perms=props.perms||{};
+  if(isAdmin){ try{ var _pv=localStorage.getItem('crmPreviewRole')||''; if(_pv&&CRM_PERMS[_pv]){ perms=CRM_PERMS[_pv]; } }catch(e){} }
   var sPopup=useState(null);
   var sCqcPopup=useState(null);
   var sTab=useState('dashboard');   /* current CRM tab, mirrored via onTab */
@@ -752,7 +756,7 @@ function CRMHost(props){
     if(ref.current&&window.CRM){
       /* No onHeader: the host renders its own left sidebar (below) instead of the lifted
          top tab-bar. onTab mirrors the active tab / lead sub-view so the sidebar highlights. */
-      window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg,
+      window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg,perms:perms,
         onTab:function(t,k){ sTab[1](t); sLeadKey[1](k||''); }});
       window.openInspPreviewGlobal=function(id){loadInspPreview(id,sPopup[1],cfgRef.current);};
       window.openCqcPreviewGlobal=function(id){loadCqcPreview(id,sCqcPopup[1],cfgRef.current);};
@@ -839,7 +843,16 @@ function Gate(props){
 /* Roles allowed into Commercial — EXACTLY Vision's perms.viewCRM grants
    (index.html ROLES): only admin, power_user, commercial. board/qc_manager/
    executive/etc. do NOT have viewCRM in Vision, so they are denied here too. */
-var ROLE_VIEW_CRM={admin:1,power_user:1,commercial:1};
+var ROLE_VIEW_CRM={admin:1,power_user:1,commercial:1,marketing:1};
+/* Per-role CRM/leads permissions. The ROLE is assigned in Vision's Admin (writes users.role to the
+   shared DB, to move to Workspace later); this app READS that role and enforces the grants below.
+   Mirror of Vision's ROLES perms for the CRM/leads keys. Pass 1: UI gating; RLS/RPC is pass 2. */
+var CRM_PERMS={
+  admin:      {viewCRM:1,editCRM:1,viewLeads:1,editLeadStatus:1,manageLeads:1},
+  power_user: {viewCRM:1,editCRM:1,viewLeads:1,editLeadStatus:1,manageLeads:1},
+  commercial: {viewCRM:1,editCRM:1,viewLeads:1,editLeadStatus:1,manageLeads:0},
+  marketing:  {viewCRM:1,editCRM:0,viewLeads:1,editLeadStatus:1,manageLeads:1}
+};
 
 function App(){
   var sState=useState({phase:'boot',msg:'Signing in…'});
@@ -866,13 +879,14 @@ function App(){
         }
         var currentUser={id:u.id,name:u.full_name,email:u.email,role:u.role};
         var isAdmin=(u.role==='admin'||u.role==='power_user');
+        var perms=CRM_PERMS[u.role]||{};
         setState({phase:'boot',msg:'Loading commercial data…'});
         loadCommercialConfig().then(function(out){
           if(!out.seasonId){
             setState({phase:'gate',msg:'No active season is configured. Contact an administrator.',showSignIn:false});
             return;
           }
-          setState({phase:'ready',currentUser:currentUser,isAdmin:isAdmin,config:out.config,seasonId:out.seasonId});
+          setState({phase:'ready',currentUser:currentUser,isAdmin:isAdmin,perms:perms,config:out.config,seasonId:out.seasonId});
         }).catch(function(e){
           setState({phase:'gate',msg:'Could not load commercial data. Please retry. ('+((e&&e.message)||'error')+')',showSignIn:false});
         });
@@ -886,7 +900,7 @@ function App(){
 
   if(state.phase==='boot') return ce(Boot,{msg:state.msg});
   if(state.phase==='gate') return ce(Gate,{msg:state.msg,showSignIn:state.showSignIn});
-  return ce(CRMHost,{currentUser:state.currentUser,isAdmin:state.isAdmin,config:state.config,seasonId:state.seasonId});
+  return ce(CRMHost,{currentUser:state.currentUser,isAdmin:state.isAdmin,perms:state.perms,config:state.config,seasonId:state.seasonId});
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(ce(App));
