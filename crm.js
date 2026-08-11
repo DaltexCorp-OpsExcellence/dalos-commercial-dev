@@ -3873,7 +3873,7 @@ function injectCrmCss(){
 .crmv .tab2.on{background:var(--accent);color:#fff;box-shadow:0 1px 6px rgba(43,92,63,.3)}
 .crmv .ndot{position:absolute;top:-6px;right:-5px;background:var(--red);color:#fff;font-size:8.5px;font-weight:700;font-family:var(--font-mono);border-radius:9px;padding:1px 5px;line-height:1.4;border:2px solid var(--bg)}
 /* slim second row fused under the topbar: search + scopes, always visible */
-.crmv .subbar{background:var(--bg);border-bottom:1px solid var(--border);padding:7px 16px;flex-shrink:0;box-shadow:0 5px 7px -6px rgba(0,0,0,.1)}
+.crmv .subbar{background:var(--bg);border-bottom:1px solid var(--border);padding:7px 16px;flex-shrink:0;box-shadow:0 5px 7px -6px rgba(0,0,0,.1);position:sticky;top:0;z-index:5}
 .crmv .subbar-inner{max-width:1180px;margin:0 auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media(max-width:900px){.crmv .tabs2{overflow-x:auto;max-width:52vw}}
 @media(max-width:767px){.crmv .tab2{padding:4px 9px;font-size:11px}.crmv .topbar-title{display:none}}

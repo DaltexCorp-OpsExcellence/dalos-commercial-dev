@@ -96,7 +96,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8"></script>
-<script src="crm.js?cb=3"></script>
+<script src="crm.js?cb=4"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -811,7 +811,7 @@ function CRMHost(props){
       ),
       /* Content root — crm.js mounts template() (.subbar + .page) here (descendant of .crmv
          so scoped styles apply). Flex column so .page scrolls internally. */
-      ce('div',{ref:ref,style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}})
+      ce('div',{ref:ref,style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflowY:'auto',overflowX:'hidden'}})
     ),
     sPopup[0]&&ce(InspPreviewModal,{popup:sPopup[0],onClose:function(){sPopup[1](null);}}),
     sCqcPopup[0]&&ce(CqcPreviewModal,{popup:sCqcPopup[0],config:cfg,onClose:function(){sCqcPopup[1](null);}})
