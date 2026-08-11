@@ -9,19 +9,19 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-/* ── Palette: VIOLET-DARK (matches the launcher card / mockup). Feeds the boot/gate
-   screens, html/body, and the QC-preview modals (which render outside .crmv). The
-   CRM island + sidebar are re-skinned via the matching .crmv.crmv block below. ── */
+/* ── Palette: PEWTER — dimmed daylight (muted lavender-gray content, dark-violet
+   sidebar, violet accent). Feeds boot/gate, html/body, and the QC-preview modals
+   (which render outside .crmv). CRM island + sidebar via the .crmv.crmv block below. ── */
 :root{
-  --bg:#0a120c;--bg2:#17281d;--bg3:#1f3227;
-  --sidebar:#0f1a13;--sidebar2:#182619;
-  --sidebar-text:#cfe0d4;--sidebar-muted:#7c9785;
-  --accent:#b18cf0;--accent2:#c6adf5;
-  --amber:#e6c079;--amber-bg:rgba(224,189,122,.14);--amber-border:rgba(224,189,122,.4);
-  --red:#ff8a76;--red-bg:rgba(255,106,82,.14);--red-border:rgba(255,106,82,.4);
-  --green:#8fe0ad;--green-bg:rgba(143,224,173,.14);--green-border:rgba(143,224,173,.42);
-  --text:#eef0ea;--text2:#c6d3c4;--text3:#8ba295;
-  --border:rgba(255,255,255,.10);--border2:rgba(255,255,255,.16);--card:#12201a;
+  --bg:#d9d6e0;--bg2:#cfccda;--bg3:#c4c1d1;
+  --sidebar:#2f2a3d;--sidebar2:#3a3449;
+  --sidebar-text:#d9d3ea;--sidebar-muted:#9a92b0;
+  --accent:#7c4dff;--accent2:#6a3ded;
+  --amber:#b7791f;--amber-bg:rgba(183,121,31,.15);--amber-border:rgba(183,121,31,.42);
+  --red:#d64545;--red-bg:rgba(214,69,69,.14);--red-border:rgba(214,69,69,.42);
+  --green:#1f9d55;--green-bg:rgba(31,157,85,.15);--green-border:rgba(31,157,85,.42);
+  --text:#221f2b;--text2:#4c4757;--text3:#6f6a7c;
+  --border:#c8c4d3;--border2:#b8b3c6;--card:#efedf4;
   --font-display:'DM Serif Display',serif;
   --font-body:'Instrument Sans',sans-serif;
   --font-mono:'DM Mono',monospace;
@@ -54,29 +54,29 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .boot-btn{display:inline-block;margin-top:16px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;padding:9px 18px;border-radius:8px;text-decoration:none}
 .boot-btn:hover{background:var(--accent2)}
 
-/* ═══════════════ VIOLET-DARK RESKIN of the CRM island ═══════════════
+/* ═══════════════ PEWTER RESKIN of the CRM island ═══════════════
    crm.js is fully CSS-variable-driven, so we override its .crmv vars here rather
    than editing crm.js (kept byte-identical). Double-class .crmv.crmv beats the
    specificity/order of crm.js's injected .crmv{} block. Same palette as :root. */
 .crmv.crmv{
-  --bg:#0a120c;--bg2:#17281d;--bg3:#1f3227;
-  --sidebar:#0f1a13;--sidebar2:#182619;
-  --sidebar-text:#cfe0d4;--sidebar-muted:#7c9785;
-  --accent:#b18cf0;--accent2:#c6adf5;
-  --amber:#e6c079;--amber-bg:rgba(224,189,122,.14);--amber-border:rgba(224,189,122,.4);
-  --red:#ff8a76;--red-bg:rgba(255,106,82,.14);--red-border:rgba(255,106,82,.4);
-  --green:#8fe0ad;--green-bg:rgba(143,224,173,.14);--green-border:rgba(143,224,173,.42);
-  --text:#eef0ea;--text2:#c6d3c4;--text3:#8ba295;
-  --border:rgba(255,255,255,.10);--border2:rgba(255,255,255,.16);--card:#12201a;
+  --bg:#d9d6e0;--bg2:#cfccda;--bg3:#c4c1d1;
+  --sidebar:#2f2a3d;--sidebar2:#3a3449;
+  --sidebar-text:#d9d3ea;--sidebar-muted:#9a92b0;
+  --accent:#7c4dff;--accent2:#6a3ded;
+  --amber:#b7791f;--amber-bg:rgba(183,121,31,.15);--amber-border:rgba(183,121,31,.42);
+  --red:#d64545;--red-bg:rgba(214,69,69,.14);--red-border:rgba(214,69,69,.42);
+  --green:#1f9d55;--green-bg:rgba(31,157,85,.15);--green-border:rgba(31,157,85,.42);
+  --text:#221f2b;--text2:#4c4757;--text3:#6f6a7c;
+  --border:#c8c4d3;--border2:#b8b3c6;--card:#efedf4;
 }
 /* Hardcoded-white Leads/Capture surfaces in crm.js → dark panels (var flip can't reach them) */
 .crmv.crmv .ldp,.crmv.crmv .lc,.crmv.crmv .inb,.crmv.crmv .capbtn,.crmv.crmv .capchip,.crmv.crmv .cap-bt,.crmv.crmv .who{background:var(--card)}
-.crmv.crmv .col-n{background:rgba(255,255,255,.08);color:var(--text2)}
-.crmv.crmv .fbtn.active .fbtn-count{background:rgba(255,255,255,.16);color:var(--text)}
-.crmv.crmv .l-bulk .btn-primary{background:var(--accent);color:#0a120c;border-color:var(--accent)}
-/* amber info banners: crm.js hardcodes a cream bg / dark-brown text — dark-amber instead */
-.crmv.crmv .alert-warn{background:rgba(224,189,122,.12);border-color:rgba(224,189,122,.35);color:#e6c079}
-.crmv.crmv .l-draft{color:#e6c079}
+.crmv.crmv .col-n{background:var(--bg3);color:var(--text2)}
+.crmv.crmv .fbtn.active .fbtn-count{background:var(--accent);color:#fff}
+.crmv.crmv .l-bulk .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* amber info banners: dark-amber text on a light amber tint */
+.crmv.crmv .alert-warn{background:rgba(183,121,31,.12);border-color:rgba(183,121,31,.35);color:#8a5a12}
+.crmv.crmv .l-draft{color:#8a5a12}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
