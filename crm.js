@@ -2962,12 +2962,48 @@ window.CRM = (function(){
   }
   function capListHtml(){
     if(!CAP.items.length) return '<div class="empty-state">No captures yet. Fill the form and tap <b>Save &amp; capture next</b>.</div>';
-    return '<div class="table-wrap"><table><thead><tr><th>Time</th><th>Company</th><th>Contact</th><th>Email</th><th class="right"></th></tr></thead><tbody>'
+    return '<div class="hint" style="margin-bottom:8px">Only your captures on this device this session. Tap a row for full details.</div>'
+      +'<div class="table-wrap"><table><thead><tr><th>Time</th><th>Company</th><th>Contact</th><th>Email</th><th class="right"></th></tr></thead><tbody>'
       +CAP.items.slice(0,50).map(function(r){
         var t=r.captured_at?r.captured_at.slice(11,16):'';
         var sync=r._synced?'<span class="badge badge-pass" title="synced to lead store">✓</span>':'<span class="badge badge-warn" title="pending sync">…</span>';
-        return '<tr><td class="mono">'+esc(t)+'</td><td>'+esc(r.company_name||'—')+'</td><td>'+esc(r.contact_name||'—')+(r.contact_role?'<div class="cell-sub">'+esc(r.contact_role)+'</div>':'')+'</td><td class="cell-sub">'+esc(r.email||'—')+'</td><td class="right">'+sync+'</td></tr>';
+        return '<tr style="cursor:pointer" onclick="CRM.capOpenDetail(\''+esc(r.client_uuid)+'\')"><td class="mono">'+esc(t)+'</td><td>'+esc(r.company_name||'—')+'</td><td>'+esc(r.contact_name||'—')+(r.contact_role?'<div class="cell-sub">'+esc(r.contact_role)+'</div>':'')+'</td><td class="cell-sub">'+esc(r.email||'—')+'</td><td class="right">'+sync+'</td></tr>';
       }).join('')+'</tbody></table></div>';
+  }
+  function capOpenDetail(uuid){
+    var r=null,i; for(i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; break; } }
+    if(!r) return;
+    var rp=r.raw_payload||{};
+    var row=function(k,v){ if(v==null||v===''||(Array.isArray(v)&&!v.length)) return ''; if(Array.isArray(v)) v=v.join(', ');
+      return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="flex:0 0 132px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;padding-top:1px">'+esc(k)+'</div><div style="flex:1;font-size:13px;color:var(--text);word-break:break-word;white-space:pre-wrap;line-height:1.45">'+esc(v)+'</div></div>'; };
+    var fuMap={}; if(typeof CAP_FOLLOWUPS!=='undefined') CAP_FOLLOWUPS.forEach(function(o){ fuMap[o[0]]=o[1]; });
+    var fu=(rp.follow_ups&&rp.follow_ups.length)?rp.follow_ups.map(function(x){ return fuMap[x]||x; }):[];
+    var camp=(function(){ for(var j=0;j<(CAP.campaigns||[]).length;j++){ if(CAP.campaigns[j].id===r.campaign_id) return CAP.campaigns[j].name; } return ''; })();
+    var srcLabel={manual:'Typed',qr_vcard:'QR / vCard',ocr_card:'Card photo (OCR)',public_form:'Public form',csv_import:'Import'}[r.source]||r.source||'';
+    var body='<div style="padding:2px">'
+      +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><div style="font-family:var(--font-display,var(--font-body));font-size:19px;color:var(--text)">'+esc(r.company_name||'—')+'</div>'
+      +(r._synced?'<span class="badge badge-pass">synced</span>':'<span class="badge badge-warn">pending sync</span>')+'</div>'
+      +row('Captured', r.captured_at?r.captured_at.replace('T',' ').slice(0,16).replace(/-/g,'/'):'')
+      +row('Campaign', camp)
+      +row('Source', srcLabel)
+      +row('Contact', r.contact_name)
+      +row('Role', r.contact_role)
+      +row('Email', r.email)
+      +row('Phone', r.phone)
+      +row('Website', r.website)
+      +row('Country', r.country)
+      +row('Address', r.address)
+      +row('Products of interest', r.product_interest)
+      +row('Other products', rp.products_other)
+      +row('Products / industries', rp.products_industries)
+      +row('Exporter type', rp.exporter_type)
+      +row('Importer type', rp.importer_type)
+      +row('Trade countries', rp.trade_countries)
+      +row('Annual quantity', rp.annual_quantity)
+      +row('Follow-up actions', fu)
+      +row('Notes', r.notes)
+      +'</div>';
+    showDlv('Captured lead', body);
   }
   function capRenderHead(){ var el=$('cap_head'); if(el) el.innerHTML=capHeadHtml(); }
   function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); }
@@ -3505,7 +3541,7 @@ window.CRM = (function(){
     capSave:gm(capSave), capClear:capClear, capSetCampaign:capSetCampaign, capExport:capExport,
     capScan:capScan, capScanCancel:capScanStop, capOcrPick:capOcrPick,
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
-    capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror,
+    capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
     campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campRefresh:campRefresh
   };

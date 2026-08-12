@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>DalOS Commercial</title>
 <meta name="theme-color" content="#1e2d22"/>
+<!-- Add-to-Home-Screen: DalOS Capture. Manifest start_url (#capture) makes the iOS icon relaunch
+     into Show Mode; apple-* meta give standalone display + icon. -->
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="apple-touch-icon" href="capture-icon-180.png"/>
+<link rel="apple-touch-icon" sizes="152x152" href="capture-icon-152.png"/>
+<link rel="apple-touch-icon" sizes="167x167" href="capture-icon-167.png"/>
+<link rel="apple-touch-icon" sizes="180x180" href="capture-icon-180.png"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="DalOS Capture"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
@@ -96,7 +107,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8"></script>
-<script src="crm.js?cb=4"></script>
+<script src="crm.js?cb=5"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -760,6 +771,28 @@ function CRMHost(props){
         onTab:function(t,k){ sTab[1](t); sLeadKey[1](k||''); }});
       window.openInspPreviewGlobal=function(id){loadInspPreview(id,sPopup[1],cfgRef.current);};
       window.openCqcPreviewGlobal=function(id){loadCqcPreview(id,sCqcPopup[1],cfgRef.current);};
+      /* #capture[=token] deep link (home-screen icon) → open Show Mode straight away.
+         Re-assert leadNav until the form is actually on screen (#cap_head); window.CRM exists
+         before the island is MOUNTED, so trusting the method alone lands on the default tab. */
+      try{
+        var _m=(location.hash||'').match(/^#capture(?:=(.*))?$/i);
+        if(_m){
+          var _tok=_m[1]?decodeURIComponent(_m[1]):'', _tries=0;
+          var _iv=setInterval(function(){
+            _tries++;
+            try{ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav('leads','cap'); }catch(e){}
+            sTab[1]('leads'); sLeadKey[1]('cap');
+            if(document.getElementById('cap_head')){
+              clearInterval(_iv);
+              setTimeout(function(){ try{ if(!document.getElementById('cap_head')) window.CRM.leadNav('leads','cap'); }catch(e){} },250);
+              if(_tok){ try{ supabase.from('crm_campaigns').select('id,name').eq('public_token',_tok).maybeSingle().then(function(res){
+                if(res&&res.data){ if(window.CRM.capSetCampaign) setTimeout(function(){ try{window.CRM.capSetCampaign(res.data.id);}catch(e){} },600);
+                  document.title=res.data.name+' — DalOS Capture'; var at=document.querySelector('meta[name="apple-mobile-web-app-title"]'); if(at) at.setAttribute('content',res.data.name); }
+              }); }catch(e){} }
+            } else if(_tries>120){ clearInterval(_iv); }
+          },120);
+        }
+      }catch(e){}
     }
     return function(){ if(window.CRM) window.CRM.teardown(); window.openInspPreviewGlobal=function(){}; window.openCqcPreviewGlobal=function(){}; sPopup[1](null); sCqcPopup[1](null); };
   },[]);
