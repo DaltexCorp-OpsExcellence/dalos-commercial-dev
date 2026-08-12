@@ -3282,7 +3282,7 @@ window.CRM = (function(){
     }).catch(function(){ var box=$('camp_qr_box'); if(box) box.innerHTML='<span class="cell-sub">QR library blocked — use the link above.</span>'; });
   }
   function campRoundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-  var CAMP_LOGO_SRC='';   /* set to a same-origin logo URL to draw the real Daltex logo instead of the text mark */
+  var CAMP_LOGO_SRC='daltex-logo.png';   /* same-origin Daltex logo drawn in the QR centre */
   function campDrawLogo(cv){
     try{
       var ctx=cv.getContext('2d'), W=cv.width;
@@ -3294,7 +3294,7 @@ window.CRM = (function(){
       if(CAMP_LOGO_SRC){
         var img=new Image();
         img.onload=function(){ try{
-          var pad=Math.round(b*0.13), iw=b-2*pad, ih=iw, ar=(img.width||1)/(img.height||1);
+          var pad=Math.round(b*0.08), iw=b-2*pad, ih=iw, ar=(img.width||1)/(img.height||1);
           if(ar>=1){ ih=Math.round(iw/ar); } else { iw=Math.round(ih*ar); }
           ctx.drawImage(img, Math.round((W-iw)/2), Math.round((W-ih)/2), iw, ih);
           var dl=$('camp_qr_dl'); if(dl) dl.disabled=false;   /* re-enable once the logo is composited */
