@@ -2757,7 +2757,7 @@ window.CRM = (function(){
   }
 
   /* ═══════════════════ SHOW MODE — real capture (offline-safe, writes crm_leads) ═══════════════════ */
-  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporter:'',importer:'',bullets:false,moreOpen:false,followups:{},notesOverlay:false};
+  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporter:'',importer:'',bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null};
   var CAP_PRODUCTS=['Potatoes','Citrus','Grapes','Onions','Spring Onions','Pomegranate','Field Crops','Mango','Carrots','Sweet Potato','Pumpkin','Peanuts','Other'];
   var CAP_EXP=['Grower','Trader','Association','Other'];
   var CAP_IMP=['Agent','Retailer','Wholesaler','Other'];
@@ -2780,17 +2780,33 @@ window.CRM = (function(){
     if(!CAP._timer) CAP._timer=setInterval(function(){ if(CAP.online && capPending().length) capSync(); },20000);
   }
 
+  function capDataUrlToBlob(durl){ var p=durl.split(','), mime=((p[0].match(/:(.*?);/)||[])[1])||'image/jpeg', bin=atob(p[1]), n=bin.length, u8=new Uint8Array(n); for(var i=0;i<n;i++) u8[i]=bin.charCodeAt(i); return new Blob([u8],{type:mime}); }
+  function capUploadCard(r){
+    return new Promise(function(resolve){
+      try{
+        if(!r._card_data || r.card_image_path){ resolve(); return; }
+        var path=(r.campaign_id||'nocamp')+'/'+r.client_uuid+'.jpg';
+        SB.storage.from('crm-lead-cards').upload(path, capDataUrlToBlob(r._card_data), {contentType:'image/jpeg',upsert:true}).then(function(res){
+          if(res&&res.error){ resolve(); return; }   /* leave _card_data for next-sync retry */
+          r.card_image_path=path; capPut(r); resolve();
+        }, function(){ resolve(); });
+      }catch(e){ resolve(); }
+    });
+  }
   function capSync(){
     if(CAP.syncing||!CAP.online||!SB) return;
     var pending=capPending(); if(!pending.length) return;
     CAP.syncing=true; capRenderHead();
-    var payload=pending.map(function(r){ var o={}; for(var k in r){ if(k.charAt(0)!=='_') o[k]=r[k]; } return o; });
-    SB.from('crm_leads').upsert(payload,{onConflict:'client_uuid',ignoreDuplicates:true}).then(function(res){
+    /* upload any attached card photos first, then upsert the lead rows (with card_image_path) */
+    Promise.all(pending.map(capUploadCard)).then(function(){
+      var payload=pending.map(function(r){ var o={}; for(var k in r){ if(k.charAt(0)!=='_') o[k]=r[k]; } return o; });
+      return SB.from('crm_leads').upsert(payload,{onConflict:'client_uuid',ignoreDuplicates:true});
+    }).then(function(res){
       CAP.syncing=false;
       if(res&&res.error){ toast('Sync will retry — '+esc(res.error.message||'')); capRenderHead(); return; }
       pending.forEach(function(r){ r._synced=true; capPut(r); });
       capRenderHead(); capRenderList();
-    },function(){ CAP.syncing=false; capRenderHead(); });
+    }).catch(function(){ CAP.syncing=false; capRenderHead(); });
   }
 
   /* ── QR/vCard scan + card OCR (both prefill the same manual form; rep confirms then Saves) ── */
@@ -2894,18 +2910,39 @@ window.CRM = (function(){
       +'<button class="btn btn-secondary" onclick="CRM.capScanCancel()">Cancel</button></div>';
   }
 
+  function capAttachPhoto(file){
+    /* resize + keep the card/badge photo on the lead for documentation (saved even if OCR fails) */
+    var rd=new FileReader();
+    rd.onload=function(ev){ var img=new Image();
+      img.onload=function(){ var max=1400, w=img.width, h=img.height, sc=Math.min(1,max/Math.max(w,h)); w=Math.round(w*sc); h=Math.round(h*sc);
+        var cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
+        try{ CAP.cardData=cv.toDataURL('image/jpeg',0.72); }catch(e){ CAP.cardData=ev.target.result; }
+        capRenderPhotoChip();
+      };
+      img.onerror=function(){}; img.src=ev.target.result;
+    };
+    rd.readAsDataURL(file);
+  }
+  function capRenderPhotoChip(){ var el=$('cap_photo_chip'); if(!el) return;
+    el.innerHTML=CAP.cardData
+      ? '<div style="display:flex;align-items:center;gap:9px;margin-bottom:12px;padding:7px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2)"><img src="'+CAP.cardData+'" style="height:46px;max-width:80px;border-radius:6px;border:1px solid var(--border);object-fit:cover"/><span class="cell-sub">Card / badge photo attached to this lead</span><span class="link-btn" style="margin-left:auto" onclick="CRM.capRemovePhoto()">Remove</span></div>'
+      : '';
+  }
+  function capRemovePhoto(){ CAP.cardData=null; capRenderPhotoChip(); }
   function capOcrPick(input){
     var file=input&&input.files&&input.files[0]; if(!file){ return; }
     input.value='';
-    toast('Reading the card…');
+    capAttachPhoto(file);                 /* always save the photo for documentation */
+    capSource='ocr_card';
+    toast('Photo attached — reading text…');
     capLoadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js').then(function(){
       if(!window.Tesseract) throw new Error('OCR engine unavailable');
-      return window.Tesseract.recognize(file,'eng');   /* English only for now — Arabic accuracy needs a cloud engine (planned) */
+      return window.Tesseract.recognize(file,'eng');   /* on-device fallback; cloud OCR is the accuracy upgrade */
     }).then(function(res){
       var f=capParseOcr((res&&res.data&&res.data.text)||'');
-      if(!f.email && !f.company && !f.name){ toast('Could not read the card — enter it manually.'); return; }
-      capSource='ocr_card'; capPrefill(f); toast('OCR done — check the fields &amp; save.');
-    }).catch(function(e){ toast('OCR failed — '+esc((e&&e.message)||'')); });
+      if(!f.email && !f.company && !f.name){ toast('Photo saved. Couldn’t read the text — type the details or read them off the photo.'); return; }
+      capPrefill(f); toast('Photo saved &amp; text read — check the fields, then Save.');
+    }).catch(function(){ toast('Photo saved. Text-read unavailable — type the details.'); });
   }
   function capField(id){ var el=$('cap_'+id); return el?(el.value||'').trim():''; }
   function capSave(){
@@ -2929,12 +2966,13 @@ window.CRM = (function(){
       product_interest:(products.length?products:null), notes:capField('notes')||null,
       captured_at:new Date().toISOString(), _synced:false };
     if(Object.keys(extra).length) rec.raw_payload=extra;
+    if(CAP.cardData) rec._card_data=CAP.cardData;   /* card/badge photo → uploaded to storage on sync */
     capPut(rec).then(function(){ CAP.items.unshift(rec); toast('Captured <b>'+esc(company)+'</b> — '+(CAP.online?'syncing…':'queued offline')); capClear(); capSync(); capRenderList(); capRenderHead(); var c=$('cap_company'); if(c) c.focus(); }).catch(function(){ toast('Could not save capture on the device.'); });
   }
-  function capClear(){ capSource='manual'; CAP.chips={}; CAP.exporter=''; CAP.importer=''; CAP.followups={};
+  function capClear(){ capSource='manual'; CAP.chips={}; CAP.exporter=''; CAP.importer=''; CAP.followups={}; CAP.cardData=null;
     ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; } });
     var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
-    var o=$('cap_products_other'); if(o) o.style.display='none'; }
+    var o=$('cap_products_other'); if(o) o.style.display='none'; capRenderPhotoChip(); }
   function capSetCampaign(id){ CAP.campaignId=id; capRenderHead(); }
 
   function capExport(){
@@ -2980,9 +3018,17 @@ window.CRM = (function(){
     var fu=(rp.follow_ups&&rp.follow_ups.length)?rp.follow_ups.map(function(x){ return fuMap[x]||x; }):[];
     var camp=(function(){ for(var j=0;j<(CAP.campaigns||[]).length;j++){ if(CAP.campaigns[j].id===r.campaign_id) return CAP.campaigns[j].name; } return ''; })();
     var srcLabel={manual:'Typed',qr_vcard:'QR / vCard',ocr_card:'Card photo (OCR)',public_form:'Public form',csv_import:'Import'}[r.source]||r.source||'';
+    var hasPhoto=!!(r._card_data||r.card_image_path);
+    var photoHtml=hasPhoto
+      ? '<div style="margin:6px 0 8px"><div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;margin-bottom:5px">Card / badge photo</div>'
+        +'<img id="capdet_img" alt="card / badge" src="'+(r._card_data||'')+'" style="width:100%;max-height:260px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in'+(r._card_data?'':';display:none')+'" onclick="if(this.src)window.open(this.src,\'_blank\')"/>'
+        +(( !r._card_data && r.card_image_path)?'<div class="cell-sub" id="capdet_imgnote" style="margin-top:4px">Loading photo…</div>':'')
+        +'</div>'
+      : '';
     var body='<div style="padding:2px">'
-      +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><div style="font-family:var(--font-display,var(--font-body));font-size:19px;color:var(--text)">'+esc(r.company_name||'—')+'</div>'
+      +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px"><div style="font-family:var(--font-display,var(--font-body));font-size:19px;color:var(--text)">'+esc(r.company_name||'—')+'</div>'
       +(r._synced?'<span class="badge badge-pass">synced</span>':'<span class="badge badge-warn">pending sync</span>')+'</div>'
+      +photoHtml
       +row('Captured', r.captured_at?r.captured_at.replace('T',' ').slice(0,16).replace(/-/g,'/'):'')
       +row('Campaign', camp)
       +row('Source', srcLabel)
@@ -3004,6 +3050,14 @@ window.CRM = (function(){
       +row('Notes', r.notes)
       +'</div>';
     showDlv('Captured lead', body);
+    /* synced-but-not-local (e.g. reopened later): fetch a signed URL for the stored photo */
+    if(!r._card_data && r.card_image_path && SB){
+      try{ SB.storage.from('crm-lead-cards').createSignedUrl(r.card_image_path,3600).then(function(res){
+        var im=$('capdet_img'), nt=$('capdet_imgnote');
+        if(res&&res.data&&res.data.signedUrl){ if(im){ im.src=res.data.signedUrl; im.style.display='block'; } if(nt) nt.parentNode&&nt.parentNode.removeChild(nt); }
+        else if(nt){ nt.textContent='Photo unavailable.'; }
+      },function(){ var nt=$('capdet_imgnote'); if(nt) nt.textContent='Photo unavailable.'; }); }catch(e){}
+    }
   }
   function capRenderHead(){ var el=$('cap_head'); if(el) el.innerHTML=capHeadHtml(); }
   function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); }
@@ -3089,8 +3143,9 @@ window.CRM = (function(){
       +'<div id="cap_head">'+capHeadHtml()+'</div>'
       +'<div class="capgrid" style="margin-bottom:12px">'
         +'<button type="button" class="capbtn" onclick="CRM.capScan()"><span class="capt">Scan QR / vCard</span><span class="caps">Digital card → fields</span></button>'
-        +'<label class="capbtn" style="cursor:pointer"><span class="capt">Photo → OCR</span><span class="caps">Read a paper card (English)</span><input type="file" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0" onchange="CRM.capOcrPick(this)"/></label>'
+        +'<label class="capbtn" style="cursor:pointer"><span class="capt">Photo of card / badge</span><span class="caps">Saved to the lead · auto-reads text</span><input type="file" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0" onchange="CRM.capOcrPick(this)"/></label>'
       +'</div>'
+      +'<div id="cap_photo_chip">'+((typeof CAP!=='undefined'&&CAP.cardData)?'':'')+'</div>'
       +'<div class="grid2">'+capFld('company','Company *','e.g. Nordfrucht GmbH')+capFld('contact','Contact name','')+'</div>'
       +'<div class="grid2">'+capFld('email','Email','name@company.com','email')+capFld('phone','Phone','','tel')+'</div>'
       +'<div class="fg"><label class="form-label">Products of interest</label><div class="capchips" id="cap_prodchips">'+capProdChipsHtml()+'</div>'
@@ -3632,7 +3687,7 @@ window.CRM = (function(){
     capScan:capScan, capScanCancel:capScanStop, capOcrPick:capOcrPick,
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
-    capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall,
+    capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall, capRemovePhoto:capRemovePhoto,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
     campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campRefresh:campRefresh
   };
