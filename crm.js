@@ -3038,6 +3038,12 @@ window.CRM = (function(){
   }
   function capMore(){ CAP.moreOpen=!CAP.moreOpen; var s=$('cap_more'); if(s) s.style.display=CAP.moreOpen?'block':'none'; var b=$('cap_morebtn'); if(b) b.innerHTML=(CAP.moreOpen?'▴ Fewer details':'▾ More details')+' <span class="cell-sub" style="text-transform:none;letter-spacing:0">type · industries · trade countries · quantity · address</span>'; }
   function capMoreOpen(){ if(!CAP.moreOpen) capMore(); }
+  /* Chromium (Android/desktop) fires beforeinstallprompt when the PWA is installable — stash it so
+     the button can trigger the REAL native install. iOS Safari exposes no such API (manual only). */
+  var CAP_BIP=null;
+  try{ window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); CAP_BIP=e; }); window.addEventListener('appinstalled',function(){ CAP_BIP=null; }); }catch(e){}
+  function capDoInstall(){ if(!CAP_BIP){ toast('Use your browser menu → Install / Add to Home screen.'); return; }
+    try{ CAP_BIP.prompt(); CAP_BIP.userChoice.then(function(r){ if(r&&r.outcome==='accepted') toast('Adding to home screen…'); CAP_BIP=null; closeDlv(); }); }catch(e){ toast('Use your browser menu → Install app.'); } }
   function capCaptureUrl(){
     var tok=''; for(var i=0;i<(CAP.campaigns||[]).length;i++){ if(CAP.campaigns[i].id===CAP.campaignId){ tok=CAP.campaigns[i].public_token||''; break; } }
     var base=location.href.split('#')[0].split('?')[0];
@@ -3046,21 +3052,34 @@ window.CRM = (function(){
   function capCopyHomeUrl(){ var el=$('cap_home_url'); if(!el) return; try{ navigator.clipboard.writeText(el.value).then(function(){ toast('Link copied.'); }); }catch(e){ try{el.select();document.execCommand('copy');}catch(e2){} toast('Copied.'); } }
   function capAddToHome(){
     var url=capCaptureUrl();
+    var ua=(navigator.userAgent||'');
     var standalone=(typeof navigator!=='undefined'&&navigator.standalone===true)||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
+    var isIOS=/iphone|ipad|ipod/i.test(ua)||(/Macintosh/.test(ua)&&(navigator.maxTouchPoints||0)>1);
     var campName=''; for(var i=0;i<(CAP.campaigns||[]).length;i++){ if(CAP.campaigns[i].id===CAP.campaignId){ campName=CAP.campaigns[i].name; break; } }
-    var body='<div class="l-form">'
-      +(standalone?'<div class="alert-ok" style="margin-bottom:10px">✓ You’re already running the installed app.</div>':'')
-      +'<div class="l-formnote">Put a one-tap <b>Capture</b> icon on the phone’s home screen — it opens straight into this stand form'+(campName?' for <b>'+esc(campName)+'</b>':'')+'.</div>'
-      +'<ol style="margin:2px 0 12px 18px;font-size:13px;line-height:1.75;color:var(--text2)">'
-      +'<li>Open this page in <b>Safari</b> (not Chrome).</li>'
-      +'<li>Tap the <b>Share</b> button (<span class="mono">□↑</span>) at the bottom.</li>'
-      +'<li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li>'
-      +'<li>Tap the new icon — it opens right back here.</li>'
-      +'</ol>'
-      +'<label class="form-label">This event’s capture link</label>'
+    var head='<div class="l-formnote">Put a one-tap <b>Capture</b> icon on the home screen'+(campName?' for <b>'+esc(campName)+'</b>':'')+' — it opens straight into this stand form.</div>';
+    var mid;
+    if(standalone){
+      mid='<div class="alert-ok" style="margin-bottom:6px">✓ You’re already running the installed app.</div>';
+    } else if(CAP_BIP){
+      /* Android / desktop Chromium — trigger the real native install */
+      mid='<button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:6px" onclick="CRM.capDoInstall()">📲 Add to Home Screen now</button>'
+        +'<div class="hint">Taps the phone’s own install dialog. If nothing pops up, use the browser menu → <b>Install app</b>.</div>';
+    } else if(isIOS){
+      /* iOS Safari exposes no install API — Apple requires the manual Share flow */
+      mid='<div class="hint" style="margin-bottom:6px">iPhone/iPad can’t auto-add — Apple only allows it from the Share menu:</div>'
+        +'<ol style="margin:0 0 4px 18px;font-size:13px;line-height:1.75;color:var(--text2)">'
+        +'<li>Open this page in <b>Safari</b> (not Chrome).</li>'
+        +'<li>Tap <b>Share</b> (<span class="mono">□↑</span>) at the bottom.</li>'
+        +'<li>Choose <b>Add to Home Screen</b> → <b>Add</b>.</li>'
+        +'</ol>';
+    } else {
+      mid='<div class="hint">Open your browser menu and choose <b>Install app</b> / <b>Add to Home screen</b>.</div>';
+    }
+    var body='<div class="l-form">'+head+mid
+      +'<label class="form-label" style="margin-top:10px">This event’s capture link</label>'
       +'<div style="display:flex;gap:6px"><input class="form-input mono" id="cap_home_url" readonly value="'+esc(url)+'" style="flex:1;font-size:12px"/><button class="btn btn-secondary btn-sm" onclick="CRM.capCopyHomeUrl()">Copy</button></div>'
-      +'<div class="hint" style="margin-top:8px">Share this link (AirDrop / WhatsApp) so each rep adds their own icon. On Android: browser menu → <b>Install app / Add to Home screen</b>.</div>'
-      +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.closeDlv()">Got it</button></div></div>';
+      +'<div class="hint" style="margin-top:8px">Share this link (AirDrop / WhatsApp) so each rep adds their own icon.</div>'
+      +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.closeDlv()">Done</button></div></div>';
     showDlv('Add to Home Screen',body);
   }
   function paneCapture(){
@@ -3613,7 +3632,7 @@ window.CRM = (function(){
     capScan:capScan, capScanCancel:capScanStop, capOcrPick:capOcrPick,
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
-    capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl,
+    capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
     campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campRefresh:campRefresh
   };
