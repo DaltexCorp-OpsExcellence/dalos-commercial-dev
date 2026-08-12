@@ -2450,6 +2450,7 @@ window.CRM = (function(){
       contact:r.contact_name||'', role:r.contact_role||'', email:r.email||'', phone:r.phone||'',
       port:r.destination_port||'', band:r.expected_volume_band||'', season:r.season_window||'', notes:r.notes||'',
       website:r.website||'', campaign:r.campaign_name||'', campaignId:r.campaign_id||null,
+      cardPath:r.card_image_path||null,
       capturedAt:r.captured_at, capturedBy:r.captured_by, age:lmAge(r.captured_at), raw:r};
   }
   function lmById(id){ for(var i=0;i<LM.rows.length;i++) if(LM.rows[i].id===id) return LM.rows[i]; return null; }
@@ -2506,6 +2507,7 @@ window.CRM = (function(){
     var l=lmById(id); if(!l) return;
     function row(lbl,val){ return '<div class="l-drow"><span class="cell-sub">'+lbl+'</span><span>'+val+'</span></div>'; }
     var body='<div class="l-form"><div class="l-qhdr">'+esc(l.company)+'</div>'
+      +(l.cardPath?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">Business card / badge</div><img id="lmdet_img" alt="business card" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="lmdet_imgnote">Loading card photo…</div></div>':'')
       +row('Lead','<span class="lot">'+esc(l.ref)+'</span>')
       +row('Stage',lmStageBadge(l))
       +(l.disposition==='returned'?row('Returned',esc(l.returnReason||'—')+(l.returnedAt?' · '+esc(lmDate(l.returnedAt)):'')):'')
@@ -2530,6 +2532,14 @@ window.CRM = (function(){
     if(!lmIsReturned(l)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmReturnOpen(\''+l.id+'\')">Return to marketing</button>');
     body+='<div class="l-formact">'+acts.join('')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div></div>';
     showDlv('Lead',body);
+    /* fetch a signed URL for the stored business-card photo (private bucket) */
+    if(l.cardPath && SB){
+      try{ SB.storage.from('crm-lead-cards').createSignedUrl(l.cardPath,3600).then(function(res){
+        var im=$('lmdet_img'), nt=$('lmdet_imgnote');
+        if(res&&res.data&&res.data.signedUrl){ if(im){ im.src=res.data.signedUrl; im.style.display='block'; } if(nt&&nt.parentNode) nt.parentNode.removeChild(nt); }
+        else if(nt){ nt.textContent='Card photo unavailable.'; }
+      },function(){ var nt=$('lmdet_imgnote'); if(nt) nt.textContent='Card photo unavailable.'; }); }catch(e){}
+    }
   }
   function lmEnrichOpen(id){
     var l=lmById(id); if(!l) return;
