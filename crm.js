@@ -3297,7 +3297,7 @@ window.CRM = (function(){
           var pad=Math.round(b*0.08), iw=b-2*pad, ih=iw, ar=(img.width||1)/(img.height||1);
           if(ar>=1){ ih=Math.round(iw/ar); } else { iw=Math.round(ih*ar); }
           ctx.drawImage(img, Math.round((W-iw)/2), Math.round((W-ih)/2), iw, ih);
-          var dl=$('camp_qr_dl'); if(dl) dl.disabled=false;   /* re-enable once the logo is composited */
+          campQrSnapshot(cv); var dl=$('camp_qr_dl'); if(dl) dl.disabled=false;
         }catch(e){} };
         img.src=CAMP_LOGO_SRC;
         return;
@@ -3312,14 +3312,17 @@ window.CRM = (function(){
       ctx.fillStyle='#22306b'; ctx.fillText(t1,sx,cy);
       ctx.fillStyle='#e2662a'; ctx.fillText(t2,sx+w1,cy);
       ctx.restore();
+      campQrSnapshot(cv);
     }catch(e){}
   }
+  /* qrcodejs shows an <img> snapshot of the canvas (canvas is display:none) and snapshots BEFORE
+     the async logo loads — so push the finished canvas (with logo) back into that visible img. */
+  function campQrSnapshot(cv){ try{ var box=$('camp_qr_box'); if(!box) return; var im=box.querySelector('img'); if(im){ im.src=cv.toDataURL('image/png'); im.style.maxWidth='100%'; im.style.height='auto'; } }catch(e){} }
   function campQrDecorate(tries){
     var box=$('camp_qr_box'); if(!box) return;
     var cv=box.querySelector('canvas');
     if(!cv){ if(tries<20) return setTimeout(function(){campQrDecorate(tries+1);},40); return; }
-    cv.style.maxWidth='100%'; cv.style.height='auto'; cv.style.display='block';
-    var im=box.querySelector('img'); if(im) im.style.display='none';  /* qrcodejs' fallback <img> has no logo — hide it, keep the canvas */
+    cv.style.maxWidth='100%'; cv.style.height='auto';
     campDrawLogo(cv);
     var dl=$('camp_qr_dl'); if(dl) dl.disabled=false;
   }
