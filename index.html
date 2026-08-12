@@ -49,6 +49,16 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .cqc-two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 .cqc-two-col-bot{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:900px){ .cqc-two-col,.cqc-two-col-bot{grid-template-columns:1fr} }
+/* Mobile: off-canvas sidebar + hamburger (desktop is unaffected) */
+.cm-burger{display:none;position:fixed;top:9px;left:9px;z-index:1001;width:40px;height:40px;align-items:center;justify-content:center;background:var(--sidebar);color:#fff;border:1px solid var(--sidebar2);border-radius:10px;box-shadow:0 3px 12px rgba(0,0,0,.28);cursor:pointer;padding:0}
+.cm-burger svg{width:20px;height:20px;display:block}
+.cm-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999}
+@media(max-width:767px){
+  .crmv .sidebar{position:fixed !important;left:0;top:0;bottom:0;height:100vh !important;z-index:1000;transform:translateX(-100%);transition:transform .25s ease;box-shadow:0 0 40px rgba(0,0,0,.45)}
+  .crmv .sidebar.mob-open{transform:translateX(0)}
+  .cm-burger{display:flex}
+  .cm-content{padding-top:52px}
+}
 /* CqcPreviewModal skeleton reuses this global keyframe (also defined by injectCrmCss) */
 @keyframes dh-shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 
@@ -761,6 +771,7 @@ function CRMHost(props){
   var sCqcPopup=useState(null);
   var sTab=useState('dashboard');   /* current CRM tab, mirrored via onTab */
   var sLeadKey=useState('');        /* active leads sub-view key (ws/enr/rej/inbox/pip/cap/board/conv) */
+  var sMob=useState(false); var mobNav=sMob[0], setMobNav=sMob[1];   /* mobile off-canvas sidebar open */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
   React.useEffect(function(){
     injectCrmCss();
@@ -807,12 +818,16 @@ function CRMHost(props){
     var ico=ICONS[iconKey]?ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ICONS[iconKey].map(function(d,i){return ce('path',{key:i,d:d});})):null;
     return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},ico,ce('span',null,label));
   }
-  function goTab(id){ if(window.CRM&&window.CRM.setTab) window.CRM.setTab(id); }
-  function goLead(item){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); }
+  function goTab(id){ if(window.CRM&&window.CRM.setTab) window.CRM.setTab(id); setMobNav(false); }
+  function goLead(item){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); setMobNav(false); }
   return ce(React.Fragment,null,
     ce('div',{className:'crmv',style:{display:'flex',height:'100vh',overflow:'hidden'}},
+      /* Mobile menu button + backdrop (hidden on desktop via CSS) */
+      ce('button',{className:'cm-burger','aria-label':'Menu',onClick:function(){setMobNav(!mobNav);}},
+        ce('svg',{viewBox:'0 0 16 16',fill:'none',stroke:'currentColor','strokeWidth':2,'strokeLinecap':'round'},ce('path',{d:'M2 4.5h12M2 8h12M2 11.5h12'}))),
+      mobNav?ce('div',{className:'cm-backdrop',key:'mob-bd',onClick:function(){setMobNav(false);}}):null,
       /* Left sidebar — host-rendered nav using crm.js's own .sidebar/.nav-* classes. */
-      ce('div',{className:'sidebar',style:{overflowY:'auto'}},
+      ce('div',{className:'sidebar'+(mobNav?' mob-open':''),style:{overflowY:'auto'}},
         ce('div',{className:'logo'},
           ce('div',{className:'logo-name'},'DalOS Commercial'),
           ce('div',{className:'logo-crop'},ce('span',{className:'crop-dot'}),'Commercial · 2025/26')
@@ -844,7 +859,7 @@ function CRMHost(props){
       ),
       /* Content root — crm.js mounts template() (.subbar + .page) here (descendant of .crmv
          so scoped styles apply). Flex column so .page scrolls internally. */
-      ce('div',{ref:ref,style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflowY:'auto',overflowX:'hidden'}})
+      ce('div',{ref:ref,className:'cm-content',style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflowY:'auto',overflowX:'hidden'}})
     ),
     sPopup[0]&&ce(InspPreviewModal,{popup:sPopup[0],onClose:function(){sPopup[1](null);}}),
     sCqcPopup[0]&&ce(CqcPreviewModal,{popup:sCqcPopup[0],config:cfg,onClose:function(){sCqcPopup[1](null);}})
