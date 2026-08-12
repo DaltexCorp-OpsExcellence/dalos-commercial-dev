@@ -3277,25 +3277,39 @@ window.CRM = (function(){
     capLoadScript('https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a0708418cb7b96fc563eacae0fbf77674/qrcode.min.js').then(function(){
       var box=$('camp_qr_box'); if(!box) return; box.innerHTML='';
       /* correctLevel H (~30% recoverable) so the centre Daltex logo never breaks scanning */
-      try{ new window.QRCode(box,{text:link,width:360,height:360,correctLevel:window.QRCode.CorrectLevel.H}); campQrDecorate(0); }
+      try{ new window.QRCode(box,{text:link,width:360,height:360,correctLevel:window.QRCode.CorrectLevel.H,colorDark:'#22306b',colorLight:'#ffffff'}); campQrDecorate(0); }
       catch(e){ box.innerHTML='<span class="cell-sub">QR unavailable — use the link above.</span>'; }
     }).catch(function(){ var box=$('camp_qr_box'); if(box) box.innerHTML='<span class="cell-sub">QR library blocked — use the link above.</span>'; });
   }
   function campRoundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  var CAMP_LOGO_SRC='';   /* set to a same-origin logo URL to draw the real Daltex logo instead of the text mark */
   function campDrawLogo(cv){
     try{
       var ctx=cv.getContext('2d'), W=cv.width;
-      var b=Math.round(W*0.26), x=Math.round((W-b)/2), y=x, r=Math.round(b*0.2);
+      var b=Math.round(W*0.20), x=Math.round((W-b)/2), y=x, r=Math.round(b*0.22);
       ctx.save();
       campRoundRect(ctx,x,y,b,b,r); ctx.fillStyle='#ffffff'; ctx.fill();
       ctx.lineWidth=Math.max(1,W*0.005); ctx.strokeStyle='#dfe0e4'; ctx.stroke();
-      ctx.textBaseline='middle';
+      ctx.restore();
+      if(CAMP_LOGO_SRC){
+        var img=new Image();
+        img.onload=function(){ try{
+          var pad=Math.round(b*0.13), iw=b-2*pad, ih=iw, ar=(img.width||1)/(img.height||1);
+          if(ar>=1){ ih=Math.round(iw/ar); } else { iw=Math.round(ih*ar); }
+          ctx.drawImage(img, Math.round((W-iw)/2), Math.round((W-ih)/2), iw, ih);
+          var dl=$('camp_qr_dl'); if(dl) dl.disabled=false;   /* re-enable once the logo is composited */
+        }catch(e){} };
+        img.src=CAMP_LOGO_SRC;
+        return;
+      }
+      /* interim mark until the real Daltex logo file is embedded */
+      ctx.save(); ctx.textBaseline='middle';
       var fs=Math.round(b*0.24);
       ctx.font='800 '+fs+'px system-ui,-apple-system,Arial,sans-serif';
       try{ ctx.letterSpacing=Math.round(fs*0.04)+'px'; }catch(e){}
       var t1='DAL', t2='TEX', w1=ctx.measureText(t1).width, w2=ctx.measureText(t2).width, tot=w1+w2, sx=(W-tot)/2, cy=W/2;
       ctx.textAlign='left';
-      ctx.fillStyle='#1f2a44'; ctx.fillText(t1,sx,cy);
+      ctx.fillStyle='#22306b'; ctx.fillText(t1,sx,cy);
       ctx.fillStyle='#e2662a'; ctx.fillText(t2,sx+w1,cy);
       ctx.restore();
     }catch(e){}
