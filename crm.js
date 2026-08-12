@@ -2541,23 +2541,39 @@ window.CRM = (function(){
       },function(){ var nt=$('lmdet_imgnote'); if(nt) nt.textContent='Card photo unavailable.'; }); }catch(e){}
     }
   }
+  function lmEnrichProdChips(sel){ sel=sel||[]; var s={}; sel.forEach(function(p){s[p]=1;}); return CAP_PRODUCTS.map(function(p){ return '<button type="button" class="capchip'+(s[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.lmEnrichChip(this)">'+esc(p)+'</button>'; }).join(''); }
+  function lmEnrichChip(btn){ btn.classList.toggle('on'); }
   function lmEnrichOpen(id){
-    var l=lmById(id); if(!l) return;
-    var body='<div class="l-form"><div class="l-formnote">Fill in the missing detail so the lead can be qualified. Saves straight to the lead record.</div>'
+    var l=lmById(id); if(!l) return; var r=l.raw||{}, rp=r.raw_payload||{};
+    var typeOpts=function(a){ return [['','—']].concat(a.map(function(x){return [x,x];})); };
+    var body='<div class="l-form"><div class="l-formnote">Complete anything left blank at the stand — every capture field is here, and it all saves to the lead. Fill the empties, then Qualify.</div>'
       +'<div class="l-qhdr">'+esc(l.company)+'</div>'
-      +field('lm_contact','Contact name',l.contact,'e.g. J. Whitfield')
-      +field('lm_role','Contact role / title',l.role,'e.g. Procurement Manager')
-      +field('lm_band','Expected volume band',l.band,'e.g. 1–5 containers')
-      +field('lm_port','Destination port',l.port,'e.g. Jebel Ali')
-      +field('lm_season','Season window',l.season,'e.g. wk 40–48')
-      +'<label class="form-label" style="margin-top:8px">Notes</label><textarea class="form-input" id="lm_notes" rows="3">'+esc(l.notes)+'</textarea>'
+      +field('lm_contact','Contact name',r.contact_name,'e.g. J. Whitfield')
+      +field('lm_role','Contact role / title',r.contact_role,'e.g. Procurement Manager')
+      +'<div class="grid2">'+field('lm_email','Email',r.email,'name@company.com')+field('lm_phone','Phone',r.phone,'')+'</div>'
+      +'<div class="grid2">'+field('lm_website','Website',r.website,'www.company.com')+field('lm_country','Country',r.country,'')+'</div>'
+      +field('lm_address','Address',r.address,'street, city, country')
+      +'<label class="form-label" style="margin-top:8px">Products of interest</label><div class="capchips" id="lm_products">'+lmEnrichProdChips(r.product_interest)+'</div>'
+      +'<div class="grid2">'+field('lm_band','Expected volume band',r.expected_volume_band,'e.g. 1–5 containers')+field('lm_qty','Annual quantity',rp.annual_quantity,'e.g. 300 cont. / season')+'</div>'
+      +'<div class="grid2">'+field('lm_port','Destination port',r.destination_port,'e.g. Jebel Ali')+field('lm_season','Season window',r.season_window,'e.g. wk 40–48')+'</div>'
+      +'<div class="grid2">'+selField('lm_exp','Exporter type',typeOpts(['Grower','Trader','Association','Other']),rp.exporter_type||'')+selField('lm_imp','Importer type',typeOpts(['Agent','Retailer','Wholesaler','Other']),rp.importer_type||'')+'</div>'
+      +field('lm_industries','Products / industries they deal in',rp.products_industries,'what they trade')
+      +field('lm_trade','Countries of export / import',rp.trade_countries,'e.g. UK, Germany, UAE')
+      +'<label class="form-label" style="margin-top:8px">Notes</label><textarea class="form-input" id="lm_notes" rows="3">'+esc(r.notes||'')+'</textarea>'
       +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.lmEnrichSave(\''+l.id+'\')">Save enrichment</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
     showDlv('Enrich lead',body);
   }
   function lmEnrichSave(id){
-    lmUpdate(id,{ contact_name:lmVal('lm_contact'), contact_role:lmVal('lm_role'),
-      expected_volume_band:lmVal('lm_band'), destination_port:lmVal('lm_port'),
-      season_window:lmVal('lm_season'), notes:lmVal('lm_notes') },'Enrichment saved.');
+    var l=lmById(id), r=(l&&l.raw)||{}, rp=Object.assign({},r.raw_payload||{});
+    function setrp(k,v){ if(v) rp[k]=v; else delete rp[k]; }
+    setrp('exporter_type',lmVal('lm_exp')); setrp('importer_type',lmVal('lm_imp'));
+    setrp('products_industries',lmVal('lm_industries')); setrp('trade_countries',lmVal('lm_trade')); setrp('annual_quantity',lmVal('lm_qty'));
+    var prods=[]; var box=$('lm_products'); if(box){ var on=box.querySelectorAll('.capchip.on'); for(var i=0;i<on.length;i++) prods.push(on[i].getAttribute('data-prod')); }
+    lmUpdate(id,{ contact_name:lmVal('lm_contact'), contact_role:lmVal('lm_role'), email:lmVal('lm_email'), phone:lmVal('lm_phone'),
+      website:lmVal('lm_website'), country:lmVal('lm_country'), address:lmVal('lm_address'),
+      expected_volume_band:lmVal('lm_band'), destination_port:lmVal('lm_port'), season_window:lmVal('lm_season'),
+      product_interest:(prods.length?prods:null), notes:lmVal('lm_notes'),
+      raw_payload:(Object.keys(rp).length?rp:null) },'Enrichment saved.');
   }
   function lmQualify(id){ var l=lmById(id); if(!l) return; lmUpdate(id,{ stage:1, disposition:'qualified', qualified_at:new Date().toISOString() },'<b>'+esc(l.company)+'</b> qualified → assign it to a region.'); }
   var lmAsg=null;
@@ -3680,7 +3696,7 @@ window.CRM = (function(){
     rrOpenDrawer:rrOpenDrawer, rrSetField:rrSetField, rrSaveRule:rrSaveRule, rrToggle:rrToggle, rrDelete:rrDelete, rrMove:rrMove,
     rrToggleDefaults:rrToggleDefaults, rrCreateFor:rrCreateFor, rrCommit:rrCommit, rrDiscard:rrDiscard, rrUndo:rrUndo,
     rrOpenAlias:rrOpenAlias, rrMapAlias:rrMapAlias, rrWhy:rrWhy, rrToggleEngine:rrToggleEngine,
-    lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave),
+    lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
     lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSearch:lmSearch, lmSetF:lmSetF,
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
