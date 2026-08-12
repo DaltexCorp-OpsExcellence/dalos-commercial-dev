@@ -3038,10 +3038,35 @@ window.CRM = (function(){
   }
   function capMore(){ CAP.moreOpen=!CAP.moreOpen; var s=$('cap_more'); if(s) s.style.display=CAP.moreOpen?'block':'none'; var b=$('cap_morebtn'); if(b) b.innerHTML=(CAP.moreOpen?'▴ Fewer details':'▾ More details')+' <span class="cell-sub" style="text-transform:none;letter-spacing:0">type · industries · trade countries · quantity · address</span>'; }
   function capMoreOpen(){ if(!CAP.moreOpen) capMore(); }
+  function capCaptureUrl(){
+    var tok=''; for(var i=0;i<(CAP.campaigns||[]).length;i++){ if(CAP.campaigns[i].id===CAP.campaignId){ tok=CAP.campaigns[i].public_token||''; break; } }
+    var base=location.href.split('#')[0].split('?')[0];
+    return base+'#capture'+(tok?'='+encodeURIComponent(tok):'');
+  }
+  function capCopyHomeUrl(){ var el=$('cap_home_url'); if(!el) return; try{ navigator.clipboard.writeText(el.value).then(function(){ toast('Link copied.'); }); }catch(e){ try{el.select();document.execCommand('copy');}catch(e2){} toast('Copied.'); } }
+  function capAddToHome(){
+    var url=capCaptureUrl();
+    var standalone=(typeof navigator!=='undefined'&&navigator.standalone===true)||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
+    var campName=''; for(var i=0;i<(CAP.campaigns||[]).length;i++){ if(CAP.campaigns[i].id===CAP.campaignId){ campName=CAP.campaigns[i].name; break; } }
+    var body='<div class="l-form">'
+      +(standalone?'<div class="alert-ok" style="margin-bottom:10px">✓ You’re already running the installed app.</div>':'')
+      +'<div class="l-formnote">Put a one-tap <b>Capture</b> icon on the phone’s home screen — it opens straight into this stand form'+(campName?' for <b>'+esc(campName)+'</b>':'')+'.</div>'
+      +'<ol style="margin:2px 0 12px 18px;font-size:13px;line-height:1.75;color:var(--text2)">'
+      +'<li>Open this page in <b>Safari</b> (not Chrome).</li>'
+      +'<li>Tap the <b>Share</b> button (<span class="mono">□↑</span>) at the bottom.</li>'
+      +'<li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li>'
+      +'<li>Tap the new icon — it opens right back here.</li>'
+      +'</ol>'
+      +'<label class="form-label">This event’s capture link</label>'
+      +'<div style="display:flex;gap:6px"><input class="form-input mono" id="cap_home_url" readonly value="'+esc(url)+'" style="flex:1;font-size:12px"/><button class="btn btn-secondary btn-sm" onclick="CRM.capCopyHomeUrl()">Copy</button></div>'
+      +'<div class="hint" style="margin-top:8px">Share this link (AirDrop / WhatsApp) so each rep adds their own icon. On Android: browser menu → <b>Install app / Add to Home screen</b>.</div>'
+      +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.closeDlv()">Got it</button></div></div>';
+    showDlv('Add to Home Screen',body);
+  }
   function paneCapture(){
     capBootstrap();
     var form='<div class="card">'
-      +'<div class="section-title"><span class="section-title-bar"></span> Show mode · stand capture</div>'
+      +'<div class="section-title"><span class="section-title-bar"></span> Show mode · stand capture <button type="button" class="link-btn" style="margin-left:auto" onclick="CRM.capAddToHome()">📲 Add to Home Screen</button></div>'
       +'<div id="cap_head">'+capHeadHtml()+'</div>'
       +'<div class="capgrid" style="margin-bottom:12px">'
         +'<button type="button" class="capbtn" onclick="CRM.capScan()"><span class="capt">Scan QR / vCard</span><span class="caps">Digital card → fields</span></button>'
@@ -3588,6 +3613,7 @@ window.CRM = (function(){
     capScan:capScan, capScanCancel:capScanStop, capOcrPick:capOcrPick,
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
+    capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
     campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campRefresh:campRefresh
   };
