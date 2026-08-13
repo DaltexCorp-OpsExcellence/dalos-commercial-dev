@@ -3402,7 +3402,7 @@ window.CRM = (function(){
     capLoadScript('https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a0708418cb7b96fc563eacae0fbf77674/qrcode.min.js').then(function(){
       var box=$('camp_qr_box'); if(!box) return; box.innerHTML='';
       /* correctLevel H (~30% recoverable) so the centre Daltex logo never breaks scanning */
-      try{ new window.QRCode(box,{text:link,width:360,height:360,correctLevel:window.QRCode.CorrectLevel.H,colorDark:'#22306b',colorLight:'#ffffff'}); campQrDecorate(0); }
+      try{ new window.QRCode(box,{text:link,width:1000,height:1000,correctLevel:window.QRCode.CorrectLevel.H,colorDark:'#22306b',colorLight:'#ffffff'}); campQrDecorate(0); }
       catch(e){ box.innerHTML='<span class="cell-sub">QR unavailable — use the link above.</span>'; }
     }).catch(function(){ var box=$('camp_qr_box'); if(box) box.innerHTML='<span class="cell-sub">QR library blocked — use the link above.</span>'; });
   }
