@@ -797,9 +797,10 @@ function crmSlugFor(tab,key){
   return null;
 }
 function crmRouteApply(slug){
-  var r=NAV_ROUTES[slug]; if(!r||!window.CRM) return false;
+  var r=NAV_ROUTES[slug]; if(!r||!window.CRM){ try{(window.__boot=window.__boot||[]).push(['noroute',slug,!!window.CRM]);}catch(e){} return false; }
   try{ if(r.kind==='tab'){ (window.CRM.openTab||window.CRM.setTab)(r.id); } else { window.CRM.leadNav(r.dest,r.key); } }
-  catch(e){ return false; }
+  catch(e){ try{(window.__boot=window.__boot||[]).push(['threw',slug,e.message]);}catch(_){} return false; }
+  try{(window.__boot=window.__boot||[]).push(['ok',slug]);}catch(e){}
   return true;
 }
 
