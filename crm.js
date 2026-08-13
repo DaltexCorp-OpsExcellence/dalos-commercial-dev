@@ -28,7 +28,7 @@ window.CRM = (function(){
   function gm(fn){ return function(){ if(!guard('manageLeads','lead management (create, import, enrich, qualify, assign, campaigns) is restricted to Marketing')) return; return fn.apply(this,arguments); }; }
   function gs(fn){ return function(){ if(!canEditLeadStatus()){ toast('<b>Not permitted</b> · you have view-only access to leads'); return; } return fn.apply(this,arguments); }; }
   function ge(fn){ return function(){ if(!guard('editCRM','CRM edits (claims, grading, redirects) are restricted to the commercial team')) return; return fn.apply(this,arguments); }; }
-  var SHIPMENTS=[], REDIR_IN=[], REGIONS=[], regionLabel={}, regionOwner={};
+  var SHIPMENTS=[], REDIR_IN=[], REGIONS=[], regionLabel={}, regionOwner={}, regionRouting={};
   var COUNTRY_REGION={}, REGION_OVERRIDES={country:{},client:{},shipment:{}}, BAND_MAP={};
   /* 13 countries served by >1 region — can't auto-resolve; kept for the admin panel flag. */
   var COUNTRY_OVERLAP={bahrain:['cis','ne'],canada:['cis','ga'],jibouti:['cis','ga'],jordan:['cis','ga'],panama:['cis','ga'],russia:['cis','go'],ksa:['cis','ne'],slovenia:['cis','ne','uk'],kuwait:['ne','ga'],qatar:['ne','ga'],'south africa':['ne','ga'],spain:['ne','ga'],uae:['ne','ga']};
@@ -748,6 +748,72 @@ window.CRM = (function(){
     var add='<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="cell-sub">Add mapping:</span><input class="scope-dd" id="sbRaw" placeholder="raw score text (e.g. BLUE)" style="max-width:200px"/><select class="scope-dd" id="sbBand">'+[1,2,3,4,5].map(function(n){return '<option value="'+n+'"'+(n===2?' selected':'')+'>'+n+' · '+bandNames[n]+'</option>';}).join('')+'</select><button class="btn btn-secondary btn-sm" onclick="CRM.addScoreBandFromForm()">Add</button></div>';
     return '<div class="pulse-panel" style="margin-top:12px"><div class="pp-title">Score bands · raw CQC score → 1–5 canonical</div><table class="rk"><tbody>'+rows+'</tbody></table>'+add+'</div>';
   }
+  /* ── Lead routing per region (Tarek: region-settings only, not a flip in the inbox) ──
+     Claim ⇄ Assign segmented control (crm_set_region_routing) enabled for admin OR a manager of the
+     region; a read-only chip otherwise. Admins also get a Members drawer to flag managers
+     (crm_set_member_manager). Note: this screen is admin-gated (renderContent), so in practice admins
+     drive it today; the control is written manager-aware for when/if the screen opens to managers. */
+  function rrRoutingPanel(){
+    var regs=REGIONS.filter(function(r){ return r.id!=='all' && !r.admin; });
+    if(!regs.length) return '';
+    var rows=regs.map(function(r){
+      var mode=lmRoutingOf(r.id), canFlip=lmIsManagerOf(r.id);
+      var seg=canFlip
+        ? '<div class="region-switch"><span class="region-btn'+(mode==='claim'?' active':'')+'" onclick="CRM.rrSetRouting(\''+r.id+'\',\'claim\')">Claim</span><span class="region-btn'+(mode==='assign'?' active':'')+'" onclick="CRM.rrSetRouting(\''+r.id+'\',\'assign\')">Assign</span></div>'
+        : '<span class="pchip '+(mode==='assign'?'ok':'mut')+'" title="only an admin or a manager of this region can change routing">'+(mode==='assign'?'Assign':'Claim')+'</span>';
+      var mem=IS_ADMIN?'<span class="link-btn" onclick="CRM.rrMembersOpen(\''+r.id+'\')">Members ▾</span>':'';
+      return '<tr><td class="nm">'+esc(r.label)+'</td><td>'+seg+'</td><td style="text-align:right">'+mem+'</td></tr>';
+    }).join('');
+    return '<div class="pulse-panel" style="margin-bottom:16px"><div class="pp-title">Lead routing · how each region gets its leads</div>'
+      +'<div class="l-formnote" style="margin-bottom:9px"><b>Claim</b> — reps self-serve unclaimed leads from the inbox. <b>Assign</b> — a region manager assigns each lead to a member.'+(IS_ADMIN?' Use <b>Members</b> to flag who can assign.':'')+'</div>'
+      +'<table class="rk"><tbody>'+rows+'</tbody></table></div>';
+  }
+  function rrSetRouting(region,mode){
+    if(!lmIsManagerOf(region)){ toast('<b>Not permitted</b> · only an admin or a region manager can change routing.'); return; }
+    mode=(mode==='assign')?'assign':'claim';
+    if(lmRoutingOf(region)===mode) return;
+    if(!SB){ toast('No connection.'); return; }
+    var prev=regionRouting[region];
+    regionRouting[region]=mode; renderRegionRulesV2();
+    SB.rpc('crm_set_region_routing',{p_region:region,p_mode:mode}).then(function(res){
+      if(res&&res.error){ regionRouting[region]=prev; renderRegionRulesV2(); toast('<b>Could not change routing.</b> '+esc(res.error.message||'')); return; }
+      toast('Routing for <b>'+esc(regionLabel[region]||region)+'</b> → <b>'+(mode==='assign'?'Assign':'Claim')+'</b>.');
+    }).catch(function(e){ regionRouting[region]=prev; renderRegionRulesV2(); toast('<b>Could not change routing.</b> '+esc(String(e))); });
+  }
+  /* Admin-only: mark region members as managers (crm_set_member_manager). Drawer lists members via
+     crm_region_members with a Manager toggle each. */
+  var rrMem={region:null,rows:[]};
+  function rrMembersOpen(region){
+    if(!IS_ADMIN){ toast('<b>Not permitted</b> · only admins manage region managers.'); return; }
+    if(!SB){ toast('No connection.'); return; }
+    rrMem={region:region,rows:[]};
+    showDlv('Region members · '+(regionLabel[region]||region),'<div class="l-form"><div class="l-formnote">Loading members…</div></div>');
+    SB.rpc('crm_region_members',{p_region:region}).then(function(res){
+      if(res&&res.error){ toast('<b>Could not load members.</b> '+esc(res.error.message||'')); closeDlv(); return; }
+      rrMem.rows=(res&&res.data)||[]; rrRenderMembers();
+    }).catch(function(e){ toast('<b>Could not load members.</b> '+esc(String(e))); closeDlv(); });
+  }
+  function rrRenderMembers(){
+    var region=rrMem.region;
+    var list=rrMem.rows.length?rrMem.rows.map(function(m){
+      var badge=m.is_manager?' <span class="pchip ok">Manager</span>':'';
+      var btn='<button class="btn btn-'+(m.is_manager?'secondary':'primary')+' btn-sm" onclick="CRM.rrToggleManager(\''+esc(m.user_id)+'\','+(m.is_manager?'false':'true')+')">'+(m.is_manager?'Revoke manager':'Make manager')+'</button>';
+      return '<div class="who" style="cursor:default"><div class="avatar">'+esc(lmInitials(m.full_name))+'</div><div style="flex:1;min-width:0"><div class="who-n">'+esc(m.full_name||'—')+badge+'</div><div class="who-s">'+esc(m.role||'member')+' · '+(m.open_load||0)+' open</div></div>'+btn+'</div>';
+    }).join(''):'<div class="empty-state">No members in this region yet. Add them under Admin → Users → Region access.</div>';
+    var body='<div class="l-form"><div class="l-formnote">Managers can assign leads to members and flip this region between <b>Claim</b> and <b>Assign</b> routing.</div>'
+      +'<div class="l-qhdr">'+esc(regionLabel[region]||region)+'</div>'+list
+      +'<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.closeDlv()">Done</button></div></div>';
+    var b=$('dlvBody'); if(b) b.innerHTML=body;
+  }
+  function rrToggleManager(userId,flag){
+    var region=rrMem.region; if(!region) return;
+    if(!SB){ toast('No connection.'); return; }
+    SB.rpc('crm_set_member_manager',{p_region:region,p_user:userId,p_flag:!!flag}).then(function(res){
+      if(res&&res.error){ toast('<b>Could not update.</b> '+esc(res.error.message||'')); return; }
+      for(var i=0;i<rrMem.rows.length;i++) if(rrMem.rows[i].user_id===userId) rrMem.rows[i].is_manager=!!flag;
+      rrRenderMembers(); toast('Manager '+(flag?'granted':'revoked')+'.');
+    }).catch(function(e){ toast('<b>Could not update.</b> '+esc(String(e))); });
+  }
   function renderRegionRulesV2(){
     var vc=$('viewContent'); if(!vc) return;
     var sim=rrSimulate(RR_DRAFT), counts=sim.counts;
@@ -784,7 +850,7 @@ window.CRM = (function(){
     /* alias reconciliation entry */
     RR_UM=rrComputeUnmatched();
     var umPanel='<div class="pulse-panel" style="margin-bottom:12px"><div style="display:flex;align-items:center;justify-content:space-between"><div class="pp-title" style="margin:0">Alias reconciliation · '+RR_UM.length+' shipment name'+(RR_UM.length===1?'':'s')+' not linked to a client</div>'+(RR_UM.length?'<button class="btn btn-secondary btn-sm" onclick="CRM.rrOpenAlias()">Reconcile →</button>':'<span class="pchip ok">all linked</span>')+'</div>'+(RR_UM.length?'<div class="cell-sub" style="margin-top:6px">These spellings on shipments don\'t match a canonical client, so identity rules can\'t reach them. Map each to fix at the source.</div>':'')+'</div>';
-    vc.innerHTML=rrToggleBar()+head+commit+cards+rulePanel+wlPanel+umPanel+rrScoreBandPanelHtml();
+    vc.innerHTML=rrToggleBar()+head+commit+cards+rrRoutingPanel()+rulePanel+wlPanel+umPanel+rrScoreBandPanelHtml();
   }
   function rrComputeUnmatched(){
     var out=[], seen={};
@@ -1527,12 +1593,12 @@ window.CRM = (function(){
 
   /* ── data loading ── */
   function loadRegions(){
-    return SB.from('regions').select('id,label,owner,is_bucket').then(function(res){ if(res&&res.error){ toast('Could not load regions — '+esc(res.error.message)); throw res.error; }
+    return SB.from('regions').select('id,label,owner,is_bucket,lead_routing').then(function(res){ if(res&&res.error){ toast('Could not load regions — '+esc(res.error.message)); throw res.error; }
       var db=(res&&res.data)||[];
       db.sort(function(a,b){ if(a.is_bucket!==b.is_bucket) return a.is_bucket?1:-1; return (a.label||'').localeCompare(b.label||''); });
-      REGIONS=[{id:'all',label:'All regions',admin:true}].concat(db.map(function(r){ return {id:r.id,label:r.label,owner:r.owner,admin:!!r.is_bucket}; }));
-      regionLabel={}; regionOwner={};
-      REGIONS.forEach(function(r){ regionLabel[r.id]=r.label; if(r.owner) regionOwner[r.id]=r.owner; });
+      REGIONS=[{id:'all',label:'All regions',admin:true}].concat(db.map(function(r){ return {id:r.id,label:r.label,owner:r.owner,admin:!!r.is_bucket,routing:(r.lead_routing==='assign'?'assign':'claim')}; }));
+      regionLabel={}; regionOwner={}; regionRouting={};
+      REGIONS.forEach(function(r){ regionLabel[r.id]=r.label; if(r.owner) regionOwner[r.id]=r.owner; regionRouting[r.id]=(r.routing==='assign'?'assign':'claim'); });
     });
   }
   function loadCountryMap(){
@@ -2423,18 +2489,23 @@ window.CRM = (function(){
      LEADS array + lead* handlers below still power the DEFERRED views (Lead
      inbox, Funnel, Conversion) — demo-only until the Phase-2 rules land.
      ═══════════════════════════════════════════════════════════════════════ */
-  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all'},myRegions:null};
+  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all'},myRegions:null,myManagerRegions:null};
   /* Leads use the SAME region model as Tracking & Claims: regions (slug id + label) + region_members.
      Assignable regions = real regions from the loaded REGIONS list, excluding 'all' and the bucket. */
   function lmRealRegions(){ return REGIONS.filter(function(r){ return r.id!=='all' && !r.admin; }).map(function(r){ return [r.id,r.label]; }); }
   function lmRegionName(slug){ return slug?(regionLabel[slug]||slug):''; }
   /* Current user's region slugs (from region_members; RLS allows reading own rows). Admins bypass. */
   function lmLoadMyRegions(){
-    if(IS_ADMIN||!SB||!(USER&&USER.id)){ LM.myRegions={}; return Promise.resolve(); }
-    return SB.from('region_members').select('region_id').eq('user_id',USER.id).then(function(res){
-      var m={}; ((res&&res.data)||[]).forEach(function(r){ if(r.region_id) m[r.region_id]=true; }); LM.myRegions=m;
-    }).catch(function(){ LM.myRegions={}; });
+    if(IS_ADMIN||!SB||!(USER&&USER.id)){ LM.myRegions={}; LM.myManagerRegions={}; return Promise.resolve(); }
+    return SB.from('region_members').select('region_id,is_manager').eq('user_id',USER.id).then(function(res){
+      var m={}, mm={}; ((res&&res.data)||[]).forEach(function(r){ if(r.region_id){ m[r.region_id]=true; if(r.is_manager) mm[r.region_id]=true; } }); LM.myRegions=m; LM.myManagerRegions=mm;
+    }).catch(function(){ LM.myRegions={}; LM.myManagerRegions={}; });
   }
+  /* Region routing mode ('claim'|'assign') and the caller's manager status.
+     lmIsManagerOf = admin OR flagged is_manager for that region (server RPCs re-check). */
+  function lmRoutingOf(slug){ return regionRouting[slug]==='assign'?'assign':'claim'; }
+  function lmIsManagerOf(region){ return IS_ADMIN || !!(region && LM.myManagerRegions && LM.myManagerRegions[region]); }
+  function lmInitials(name){ var p=String(name||'').trim().split(/\s+/); if(!p[0]) return '?'; return ((p[0][0]||'')+(p.length>1?(p[p.length-1][0]||''):'')).toUpperCase(); }
   var LM_SOURCES=[['manual','Manual'],['qr_vcard','QR / vCard'],['ocr_card','Card OCR'],['public_form','Public form'],['csv_import','CSV import']];
   function lmSourceLabel(s){ for(var i=0;i<LM_SOURCES.length;i++) if(LM_SOURCES[i][0]===s) return LM_SOURCES[i][1]; return s||'—'; }
   function lmAge(ts){ if(!ts) return '—'; var d=Math.floor((Date.now()-new Date(ts).getTime())/86400000); if(d<=0) return 'today'; if(d===1) return '1d'; if(d<30) return d+'d'; return Math.floor(d/30)+'mo'; }
@@ -2444,7 +2515,7 @@ window.CRM = (function(){
       company:r.company_name||'—', country:r.country||'—',
       product:(r.product_interest&&r.product_interest.length?r.product_interest.join(', '):'—'), products:r.product_interest||[],
       source:r.source||'', status:r.status||'', stage:r.stage||0, disposition:r.disposition||null,
-      assignedRegion:r.assigned_region||'', assignedTo:r.assigned_to||null, assignedAt:r.assigned_at||null,
+      assignedRegion:r.assigned_region||'', assignedTo:r.assigned_to||null, assignedToName:r.assigned_to_name||'', assignedBy:r.assigned_by||null, assignedByName:r.assigned_by_name||'', assignedAt:r.assigned_at||null,
       returnReason:r.return_reason||'', returnedAt:r.returned_at||null, returnedBy:r.returned_by||null,
       thread:(r.handoff_log&&r.handoff_log.length?r.handoff_log:[]),
       contact:r.contact_name||'', role:r.contact_role||'', email:r.email||'', phone:r.phone||'',
@@ -2511,7 +2582,7 @@ window.CRM = (function(){
       +row('Lead','<span class="lot">'+esc(l.ref)+'</span>')
       +row('Stage',lmStageBadge(l))
       +(l.disposition==='returned'?row('Returned',esc(l.returnReason||'—')+(l.returnedAt?' · '+esc(lmDate(l.returnedAt)):'')):'')
-      +(lmIsAssigned(l)?row('Owner',lmIsMine(l)?'You':(l.assignedTo?'Another rep':'<span class="cell-sub">Unclaimed · in the region inbox</span>')):'')
+      +(lmIsAssigned(l)?row('Owner',l.assignedTo?((lmIsMine(l)?'You':esc(l.assignedToName||'Another rep'))+(l.assignedByName?' <span class="cell-sub">· assigned by '+esc(l.assignedByName)+'</span>':'')):'<span class="cell-sub">Unclaimed · in the region inbox</span>'):'')
       +row('Country · region',esc(l.country)+' · '+(l.assignedRegion?esc(lmRegionName(l.assignedRegion)):'<span class="cell-sub">unassigned</span>'))
       +row('Product',esc(l.product))
       +row('Volume band',esc(l.band||'—'))
@@ -2527,7 +2598,12 @@ window.CRM = (function(){
     acts.push('<button class="btn btn-secondary" onclick="CRM.lmEnrichOpen(\''+l.id+'\')">Enrich</button>');
     if(lmIsCaptured(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmQualify(\''+l.id+'\')">Qualify</button>');
     if(lmIsQualified(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>');
-    if(lmIsUnclaimed(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmClaim(\''+l.id+'\')">Claim (assign to me)</button>');
+    if(lmIsUnclaimed(l)){
+      var uMode=lmRoutingOf(l.assignedRegion), uMgr=lmIsManagerOf(l.assignedRegion);
+      if(uMode==='claim') acts.push('<button class="btn btn-primary" onclick="CRM.lmClaim(\''+l.id+'\')">Claim (assign to me)</button>');
+      if(uMgr) acts.push('<button class="btn btn-'+(uMode==='assign'?'primary':'secondary')+'" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to member…</button>');
+    }
+    if(lmIsAssigned(l) && l.assignedTo && lmIsManagerOf(l.assignedRegion)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>');
     if(lmIsReturned(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmRequeueOpen(\''+l.id+'\')">Re-queue</button>');
     if(!lmIsReturned(l)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmReturnOpen(\''+l.id+'\')">Return to marketing</button>');
     body+='<div class="l-formact">'+acts.join('')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div></div>';
@@ -2595,6 +2671,50 @@ window.CRM = (function(){
   }
   /* Claim = flag the lead to a rep (the owner). Separate from the stage; moves it into that rep's pipeline. */
   function lmClaim(id){ var l=lmById(id); if(!l) return; lmUpdate(id,{ assigned_to:(USER&&USER.id)||null },'<b>'+esc(l.company)+'</b> claimed — it’s in your pipeline.'); }
+  /* ── Assign mode · manager assigns an unclaimed/owned lead to a region member ──
+     Picker is fed by crm_region_members(region); the pick calls crm_assign_lead(lead,user) (or NULL to
+     release). Both RPCs re-check admin/manager-of-region server-side, so the client gate (lmIsManagerOf)
+     is cosmetic — a non-manager who forces the call gets the RPC error surfaced via the toast. */
+  var lmMem={id:null,region:null,to:null,rows:[]};
+  function lmAssignMemberOpen(id){
+    var l=lmById(id); if(!l) return;
+    var region=l.assignedRegion;
+    if(!region){ toast('Assign the lead to a region first.'); return; }
+    if(!lmIsManagerOf(region)){ toast('<b>Not permitted</b> · only a region manager can assign leads.'); return; }
+    if(!SB){ toast('No connection.'); return; }
+    lmMem={id:id,region:region,to:null,rows:[]};
+    showDlv('Assign to member','<div class="l-form"><div class="l-formnote">Loading '+esc(regionLabel[region]||region)+' members…</div></div>');
+    SB.rpc('crm_region_members',{p_region:region}).then(function(res){
+      if(res&&res.error){ toast('<b>Could not load members.</b> '+esc(res.error.message||'')); closeDlv(); return; }
+      lmMem.rows=(res&&res.data)||[]; lmRenderMemberPicker(l);
+    }).catch(function(e){ toast('<b>Could not load members.</b> '+esc(String(e))); closeDlv(); });
+  }
+  function lmRenderMemberPicker(l){
+    var region=lmMem.region, curOwner=l.assignedTo;
+    var rows=lmMem.rows.length?lmMem.rows.map(function(m){
+      var sel=(lmMem.to?lmMem.to===m.user_id:(curOwner&&curOwner===m.user_id));
+      var badge=m.is_manager?' <span class="pchip ok">Manager</span>':'';
+      var owns=(curOwner&&curOwner===m.user_id)?' <span class="pchip mut">current owner</span>':'';
+      return '<div class="who'+(sel?' sel':'')+'" onclick="CRM.lmMemberPick(\''+esc(m.user_id)+'\')"><div class="avatar">'+esc(lmInitials(m.full_name))+'</div>'
+        +'<div style="flex:1;min-width:0"><div class="who-n">'+esc(m.full_name||'—')+badge+owns+'</div><div class="who-s">'+esc(m.role||'member')+'</div></div>'
+        +'<div class="who-s" style="margin-left:auto;white-space:nowrap">'+(m.open_load||0)+' open</div></div>';
+    }).join(''):'<div class="empty-state">No members in this region yet. An admin can add them under Admin → Users → Region access.</div>';
+    var releaseBtn=curOwner?'<button class="btn btn-secondary" onclick="CRM.lmReleaseMember()">Release to inbox</button>':'';
+    var body='<div class="l-form"><div class="l-formnote">Assign <b>'+esc(l.company)+'</b> to a member of <b>'+esc(regionLabel[region]||region)+'</b>. The member owns it in their pipeline; you can re-assign later.</div>'
+      +'<div class="l-qhdr">Assign to member</div>'+rows
+      +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.lmAssignMemberSave()">Assign</button>'+releaseBtn+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
+    $('dlvBody').innerHTML=body;
+  }
+  function lmMemberPick(userId){ if(!lmMem) return; lmMem.to=userId; var l=lmById(lmMem.id); if(l) lmRenderMemberPicker(l); }
+  function lmAssignMemberSave(){ if(!lmMem||!lmMem.id) return; if(!lmMem.to){ toast('Pick a member first.'); return; } lmDoAssign(lmMem.id,lmMem.to); }
+  function lmReleaseMember(){ if(!lmMem||!lmMem.id) return; lmDoAssign(lmMem.id,null); }
+  function lmDoAssign(leadId,toUserId){
+    if(!SB){ toast('No connection.'); return; }
+    SB.rpc('crm_assign_lead',{p_lead:leadId,p_to:toUserId}).then(function(res){
+      if(res&&res.error){ toast('<b>Assign failed.</b> '+esc(res.error.message||'')); return; }
+      closeDlv(); toast(toUserId?'Lead assigned.':'Lead released back to the inbox.'); lmReload();
+    }).catch(function(e){ toast('<b>Assign failed.</b> '+esc(String(e))); });
+  }
   /* Return to marketing — captures a reason (why), who, and when. Drops rep ownership so the
      lead leaves the pipeline; keeps assigned_region as context for the Returned-by-sales list.
      Reasons mirror the mockup's Class A/B vocabulary; the A/B/No-response CLASSIFICATION is Phase 2. */
@@ -3272,35 +3392,47 @@ window.CRM = (function(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
     var list=inboxList();
     var cards=list.map(function(l){
+      var region=l.assignedRegion, mode=lmRoutingOf(region), mgr=lmIsManagerOf(region);
       var chips=[];
-      chips.push(bdg('badge-n',lmRegionName(l.assignedRegion)||'—'));
+      chips.push(bdg('badge-n',lmRegionName(region)||'—'));
       if(l.contact) chips.push(bdg('badge-pass',l.contact+(l.role?' · '+l.role:'')));
       if(l.product&&l.product!=='—') chips.push(bdg('badge-n',l.product));
       if(l.band) chips.push(bdg('badge-n',esc(l.band)));
       chips.push(bdg('badge-n',lmSourceLabel(l.source)));
       if(l.campaign) chips.push(bdg('badge-n',l.campaign));
+      var routeChip='<span class="pchip '+(mode==='assign'?'ok':'mut')+'" title="region routing">Routing: '+(mode==='assign'?'Assign':'Claim')+'</span>';
+      var acts;
+      if(mode==='assign'){
+        acts=mgr
+          ? '<button class="btn btn-primary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to member ▾</button>'
+          : '<span class="pchip mut" style="padding:5px 10px">Awaiting assignment from your manager</span>';
+      } else {
+        acts='<button class="btn btn-primary btn-sm" onclick="CRM.lmClaim(\''+l.id+'\')">Claim &amp; own</button>';
+        if(mgr) acts+='<button class="btn btn-secondary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to…</button>';
+      }
+      acts+='<button class="btn btn-secondary btn-sm" onclick="CRM.lmOpen(\''+l.id+'\')">Open lead</button>';
       return '<div class="inb"><div class="inb-h"><span class="lot">'+esc(l.ref)+'</span><span class="inb-t">'+esc(l.company)+'</span>'
-        +'<span style="margin-left:auto">'+bdg('badge-warn','unclaimed')+'</span></div>'
+        +'<span style="margin-left:auto;display:flex;gap:6px;align-items:center">'+routeChip+bdg('badge-warn','unclaimed')+'</span></div>'
         +'<div class="chips">'+chips.join('')+'</div>'
-        +'<div class="gset"><button class="btn btn-primary btn-sm" onclick="CRM.lmClaim(\''+l.id+'\')">Claim &amp; own</button>'
-        +'<button class="btn btn-secondary btn-sm" onclick="CRM.lmOpen(\''+l.id+'\')">Open lead</button></div></div>';
+        +'<div class="gset">'+acts+'</div></div>';
     }).join('');
     var emptyMsg=(!IS_ADMIN && !Object.keys(LM.myRegions||{}).length)
       ? 'You have no CRM region assigned yet — an admin can grant one under Admin → Users → Region access.'
       : 'No unclaimed leads in your region(s). Marketing qualifies a lead, then <b>Assign to region</b> to route it here.';
     return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Lead inbox · '+esc(lmInboxScopeLabel())+' · '+list.length+' unclaimed'
       +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="alert-warn" style="margin-bottom:12px">Leads assigned to your region, waiting for a rep. <strong>Claim</strong> takes ownership — the lead moves to your pipeline. The accept-race (atomic claim) and SLA timers arrive with the Phase-2 rules.</div>'
+      +'<div class="alert-warn" style="margin-bottom:12px">Leads assigned to your region, waiting for an owner. In <strong>Claim</strong> regions a rep takes ownership from here; in <strong>Assign</strong> regions a manager assigns each lead to a member. Routing is set per region under Setup → Region rules.</div>'
       +(list.length?cards:'<div class="empty-state">'+emptyMsg+'</div>')+'</div>';
   }
   function panePipeline(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
     var mine=LM.rows.filter(lmIsMine);
     var rows=mine.map(function(l){
-      return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'</td>'
+      var reassign=lmIsManagerOf(l.assignedRegion)?'<button class="btn btn-secondary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>':'';
+      return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'<div class="cell-sub">Owned by '+(l.assignedToName?esc(l.assignedToName):'you')+(l.assignedByName?' · assigned by '+esc(l.assignedByName):'')+'</div></td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'—')+'</td>'
         +'<td>'+esc(l.product)+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td>'
-        +'<td onclick="event.stopPropagation()"><button class="btn btn-primary btn-sm" onclick="CRM.leadWonOpen(\''+l.id+'\')">Mark won</button></td></tr>';
+        +'<td onclick="event.stopPropagation()"><button class="btn btn-primary btn-sm" onclick="CRM.leadWonOpen(\''+l.id+'\')">Mark won</button>'+reassign+'</td></tr>';
     }).join('');
     if(!mine.length) rows='<tr><td colspan="7" class="cell-sub" style="padding:16px;text-align:center">Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.</td></tr>';
     return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> My pipeline · '+mine.length+' lead(s) assigned to me'
@@ -3756,6 +3888,8 @@ window.CRM = (function(){
     rrOpenDrawer:rrOpenDrawer, rrSetField:rrSetField, rrSaveRule:rrSaveRule, rrToggle:rrToggle, rrDelete:rrDelete, rrMove:rrMove,
     rrToggleDefaults:rrToggleDefaults, rrCreateFor:rrCreateFor, rrCommit:rrCommit, rrDiscard:rrDiscard, rrUndo:rrUndo,
     rrOpenAlias:rrOpenAlias, rrMapAlias:rrMapAlias, rrWhy:rrWhy, rrToggleEngine:rrToggleEngine,
+    rrSetRouting:rrSetRouting, rrMembersOpen:rrMembersOpen, rrToggleManager:rrToggleManager,
+    lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
     lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSearch:lmSearch, lmSetF:lmSetF,
