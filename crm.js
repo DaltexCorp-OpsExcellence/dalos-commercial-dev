@@ -3411,17 +3411,17 @@ window.CRM = (function(){
   function campDrawLogo(cv){
     try{
       var ctx=cv.getContext('2d'), W=cv.width;
-      var b=Math.round(W*0.20), x=Math.round((W-b)/2), y=x, r=Math.round(b*0.22);
+      var b=Math.round(W*0.21), cx=W/2, cy=W/2;   /* clean white circle knockout, no border */
       ctx.save();
-      campRoundRect(ctx,x,y,b,b,r); ctx.fillStyle='#ffffff'; ctx.fill();
-      ctx.lineWidth=Math.max(1,W*0.005); ctx.strokeStyle='#dfe0e4'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx,cy,b/2,0,Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill();
       ctx.restore();
       if(CAMP_LOGO_SRC){
         var img=new Image();
         img.onload=function(){ try{
-          var pad=Math.round(b*0.08), iw=b-2*pad, ih=iw, ar=(img.width||1)/(img.height||1);
+          /* fill more of the circle: 0.72·b height stays fully inscribed (max ~0.76 for this logo aspect) */
+          var fit=Math.round(b*0.72), iw=fit, ih=fit, ar=(img.width||1)/(img.height||1);
           if(ar>=1){ ih=Math.round(iw/ar); } else { iw=Math.round(ih*ar); }
-          ctx.drawImage(img, Math.round((W-iw)/2), Math.round((W-ih)/2), iw, ih);
+          ctx.drawImage(img, Math.round(cx-iw/2), Math.round(cy-ih/2), iw, ih);
           campQrSnapshot(cv); var dl=$('camp_qr_dl'); if(dl) dl.disabled=false;
         }catch(e){} };
         img.src=CAMP_LOGO_SRC;
