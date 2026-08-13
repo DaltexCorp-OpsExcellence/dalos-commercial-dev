@@ -759,6 +759,50 @@ var LEADS_SUBNAV=[
   {dest:'funnel',key:'conv',label:'Conversion',icon:'conversion'}
 ];
 
+/* ── Per-tab deep links. Each nav destination gets a stable URL hash (#shipments,
+   #campaigns, #capture, …) so any tab is bookmarkable / shareable and the address
+   bar tracks the active view. Tabs → CRM.setTab; lead sub-views → CRM.leadNav.
+   #capture keeps its own token-aware handler in the mount effect below. ── */
+var NAV_ROUTES={
+  dashboard:{kind:'tab',id:'dashboard'},
+  shipments:{kind:'tab',id:'shipments'},
+  invoices:{kind:'tab',id:'invoices'},
+  claims:{kind:'tab',id:'claims'},
+  redirects:{kind:'tab',id:'redirects'},
+  grading:{kind:'tab',id:'grading'},
+  clean:{kind:'tab',id:'clean'},
+  regions:{kind:'tab',id:'regions'},
+  workspace:{kind:'lead',dest:'leads',key:'ws'},
+  enrichment:{kind:'lead',dest:'leads',key:'enr'},
+  returned:{kind:'lead',dest:'leads',key:'rej'},
+  inbox:{kind:'lead',dest:'inbox',key:'inbox'},
+  pipeline:{kind:'lead',dest:'inbox',key:'pip'},
+  capture:{kind:'lead',dest:'leads',key:'cap'},
+  campaigns:{kind:'lead',dest:'campaigns',key:''},
+  funnel:{kind:'lead',dest:'funnel',key:'board'},
+  conversion:{kind:'lead',dest:'funnel',key:'conv'}
+};
+/* reverse: active (tab,leadKey) → slug, so onTab can keep the URL in sync even
+   for in-content navigation (e.g. a KPI card that calls CRM.setTab directly). */
+function crmSlugFor(tab,key){
+  key=key||'';
+  for(var s in NAV_ROUTES){ var r=NAV_ROUTES[s];
+    if(r.kind==='lead'&&r.dest===tab&&(r.key||'')===key) return s;
+    if(r.kind==='tab'&&r.id===tab) return s;
+  }
+  if(tab==='leads') return 'workspace';
+  if(tab==='inbox') return 'inbox';
+  if(tab==='funnel') return 'funnel';
+  if(tab==='campaigns') return 'campaigns';
+  return null;
+}
+function crmRouteApply(slug){
+  var r=NAV_ROUTES[slug]; if(!r||!window.CRM) return false;
+  try{ if(r.kind==='tab'){ (window.CRM.openTab||window.CRM.setTab)(r.id); } else { window.CRM.leadNav(r.dest,r.key); } }
+  catch(e){ return false; }
+  return true;
+}
+
 function CRMHost(props){
   var ref=React.useRef(null);
   var cfg=props.config||{};
@@ -774,23 +818,33 @@ function CRMHost(props){
   var sTab=useState('dashboard');   /* current CRM tab, mirrored via onTab */
   var sLeadKey=useState('');        /* active leads sub-view key (ws/enr/rej/inbox/pip/cap/board/conv) */
   var sMob=useState(false); var mobNav=sMob[0], setMobNav=sMob[1];   /* mobile off-canvas sidebar open */
+  var slugRef=React.useRef('dashboard');    /* current deep-link slug */
+  var selfHashRef=React.useRef(false);       /* true = we set the hash ourselves; ignore the resulting hashchange */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
   React.useEffect(function(){
     injectCrmCss();
+    var _initHash=(location.hash||'');   /* captured before init() fires its default-tab onTab */
     if(ref.current&&window.CRM){
       /* No onHeader: the host renders its own left sidebar (below) instead of the lifted
-         top tab-bar. onTab mirrors the active tab / lead sub-view so the sidebar highlights. */
+         top tab-bar. onTab mirrors the active tab / lead sub-view so the sidebar highlights,
+         and keeps the URL hash in sync so every tab is a shareable deep link. */
       window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg,perms:perms,
-        onTab:function(t,k){ sTab[1](t); sLeadKey[1](k||''); }});
+        onTab:function(t,k){ sTab[1](t); sLeadKey[1](k||'');
+          var sl=crmSlugFor(t,k||'');
+          if(sl){ slugRef.current=sl;
+            var hb=/^#capture/i.test(location.hash||'')?'capture':(location.hash||'').replace(/^#/,'').toLowerCase();
+            if(sl!==hb){ selfHashRef.current=true; try{ location.hash='#'+sl; }catch(e){} }   /* preserves #capture=TOKEN */
+          }
+        }});
       window.openInspPreviewGlobal=function(id){loadInspPreview(id,sPopup[1],cfgRef.current);};
       window.openCqcPreviewGlobal=function(id){loadCqcPreview(id,sCqcPopup[1],cfgRef.current);};
       /* #capture[=token] deep link (home-screen icon) → open Show Mode straight away.
          Re-assert leadNav until the form is actually on screen (#cap_head); window.CRM exists
          before the island is MOUNTED, so trusting the method alone lands on the default tab. */
       try{
-        var _m=(location.hash||'').match(/^#capture(?:=(.*))?$/i);
+        var _m=_initHash.match(/^#capture(?:=(.*))?$/i);
         if(_m){
-          var _tok=_m[1]?decodeURIComponent(_m[1]):'', _tries=0;
+          var _tok=_m[1]?decodeURIComponent(_m[1]):'', _tries=0; slugRef.current='capture'; selfHashRef.current=true; location.hash=_initHash;
           var _iv=setInterval(function(){
             _tries++;
             try{ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav('leads','cap'); }catch(e){}
@@ -804,10 +858,25 @@ function CRMHost(props){
               }); }catch(e){} }
             } else if(_tries>120){ clearInterval(_iv); }
           },120);
+        } else {
+          /* any other tab deep link, e.g. #shipments / #campaigns / #enrichment */
+          var _sl=_initHash.replace(/^#/,'').toLowerCase();
+          if(NAV_ROUTES[_sl]){ slugRef.current=_sl; crmRouteApply(_sl); }
         }
       }catch(e){}
+      /* live hash changes: pasted link, browser back/forward, another tab opened via link */
+      var _onHash=function(){
+        if(selfHashRef.current){ selfHashRef.current=false; return; }
+        var h=(location.hash||'');
+        if(/^#capture/i.test(h)){ slugRef.current='capture'; try{ window.CRM.leadNav('leads','cap'); }catch(e){} sTab[1]('leads'); sLeadKey[1]('cap'); return; }
+        var sl=h.replace(/^#/,'').toLowerCase();
+        if(!NAV_ROUTES[sl]||sl===slugRef.current) return;
+        slugRef.current=sl; crmRouteApply(sl);
+      };
+      window.addEventListener('hashchange',_onHash);
+      CRMHost._offHash=function(){ window.removeEventListener('hashchange',_onHash); };
     }
-    return function(){ if(window.CRM) window.CRM.teardown(); window.openInspPreviewGlobal=function(){}; window.openCqcPreviewGlobal=function(){}; sPopup[1](null); sCqcPopup[1](null); };
+    return function(){ if(CRMHost._offHash) CRMHost._offHash(); if(window.CRM) window.CRM.teardown(); window.openInspPreviewGlobal=function(){}; window.openCqcPreviewGlobal=function(){}; sPopup[1](null); sCqcPopup[1](null); };
   },[]);
   React.useEffect(function(){ if(window.CRM&&seasonId) window.CRM.setSeason(seasonId); },[seasonId]);
   var tab=sTab[0], leadKey=sLeadKey[0];
