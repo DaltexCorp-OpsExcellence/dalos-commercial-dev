@@ -92,6 +92,10 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
   --text:#221f2b;--text2:#4c4757;--text3:#6f6a7c;
   --border:#c8c4d3;--border2:#b8b3c6;--card:#efedf4;
 }
+/* consolidated Lead-Generation nav: Marketing/Sales sub-labels + My Work count badge */
+.crmv .nav-sublabel{padding-top:8px;padding-bottom:3px;opacity:.9}
+.crmv .nav-item .nav-badge{margin-left:auto;font-family:var(--font-mono);font-size:10px;line-height:16px;min-width:16px;text-align:center;background:var(--red);color:#fff;border-radius:9px;padding:0 6px}
+.crmv .nav-item.active .nav-badge{background:rgba(255,255,255,.28);color:#fff}
 /* Hardcoded-white Leads/Capture surfaces in crm.js → dark panels (var flip can't reach them) */
 .crmv.crmv .ldp,.crmv.crmv .lc,.crmv.crmv .inb,.crmv.crmv .capbtn,.crmv.crmv .capchip,.crmv.crmv .cap-bt,.crmv.crmv .who{background:var(--card)}
 .crmv.crmv .col-n{background:var(--bg3);color:var(--text2)}
@@ -747,16 +751,17 @@ var MAIN_NAV=[
   {id:'grading',label:'Grading',icon:'grading'},
   {id:'clean',label:'Clean',icon:'clean'}
 ];
+/* Consolidated Lead Generation nav — 5 items, grouped Marketing then Sales.
+   Each merged sidebar item lands on the destination's default in-view segment
+   tab; the segment tabs (rendered inside crm.js) reach the other views.
+   `group` renders a sub-label (reusing .nav-label) above the item; `badge`
+   names a live count the host injects (My Work carries the inbox count). */
 var LEADS_SUBNAV=[
-  {dest:'leads',key:'ws',label:'Workspace',icon:'workspace'},
-  {dest:'leads',key:'enr',label:'Enrichment queue',icon:'enrichment'},
-  {dest:'leads',key:'rej',label:'Returned by sales',icon:'returned'},
-  {dest:'inbox',key:'inbox',label:'Lead inbox',icon:'inbox'},
-  {dest:'inbox',key:'pip',label:'My pipeline',icon:'pipeline'},
-  {dest:'leads',key:'cap',label:'Capture · show mode',icon:'capture'},
-  {dest:'campaigns',key:'campaigns',label:'Campaigns',icon:'campaigns'},
-  {dest:'funnel',key:'board',label:'Funnel',icon:'funnel'},
-  {dest:'funnel',key:'conv',label:'Conversion',icon:'conversion'}
+  {dest:'leads',key:'ws',keys:['ws','enr','rej'],label:'Leads',icon:'workspace',group:'Marketing'},
+  {dest:'leads',key:'cap',keys:['cap'],label:'Show Mode',icon:'capture'},
+  {dest:'campaigns',key:'campaigns',keys:['campaigns'],label:'Campaigns',icon:'campaigns'},
+  {dest:'funnel',key:'board',keys:['board','conv'],label:'Funnel & Conversion',icon:'funnel'},
+  {dest:'inbox',key:'inbox',keys:['inbox','pip'],label:'My Work',icon:'inbox',group:'Sales',badge:'inbox'}
 ];
 
 /* ── Per-tab deep links. Each nav destination gets a stable URL hash (#shipments,
@@ -828,6 +833,7 @@ function CRMHost(props){
   var sTab=useState('dashboard');   /* current CRM tab, mirrored via onTab */
   var sLeadKey=useState('');        /* active leads sub-view key (ws/enr/rej/inbox/pip/cap/board/conv) */
   var sMob=useState(false); var mobNav=sMob[0], setMobNav=sMob[1];   /* mobile off-canvas sidebar open */
+  var sInboxN=useState(0); var inboxN=sInboxN[0];   /* live unclaimed-inbox count → My Work sidebar badge */
   var slugRef=React.useRef('dashboard');    /* current deep-link slug (single source of truth) */
   var readyRef=React.useRef(false);          /* true once boot routing is done — only then does onTab sync the URL */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
@@ -898,15 +904,27 @@ function CRMHost(props){
     return function(){ if(CRMHost._offHash) CRMHost._offHash(); if(window.CRM) window.CRM.teardown(); window.openInspPreviewGlobal=function(){}; window.openCqcPreviewGlobal=function(){}; sPopup[1](null); sCqcPopup[1](null); };
   },[]);
   React.useEffect(function(){ if(window.CRM&&seasonId) window.CRM.setSeason(seasonId); },[seasonId]);
+  /* Keep the My Work sidebar badge in sync with crm.js's live unclaimed-inbox count.
+     Light poll (crm.js caps the underlying leads load to one fetch); only setState on change. */
+  React.useEffect(function(){
+    var iv=setInterval(function(){
+      try{ if(window.CRM&&window.CRM.leadInboxCount){ var n=window.CRM.leadInboxCount()||0; sInboxN[1](function(p){return p===n?p:n;}); } }catch(e){}
+    },3000);
+    return function(){ clearInterval(iv); };
+  },[]);
   var tab=sTab[0], leadKey=sLeadKey[0];
   function leadActive(item){
     if(item.dest!==tab) return false;
-    var eff=leadKey||(item.dest==='leads'?'ws':item.dest==='inbox'?'inbox':item.dest==='funnel'?'board':'');
+    var eff=leadKey||(item.dest==='leads'?'ws':item.dest==='inbox'?'inbox':item.dest==='funnel'?'board':item.dest==='campaigns'?'campaigns':'');
+    /* umbrella items own several in-view segments (e.g. Leads → ws/enr/rej), so match the set */
+    if(item.keys) return item.keys.indexOf(eff)>=0;
     return (item.key||'')===(eff||'');
   }
-  function navItem(k,label,active,onClick,iconKey){
+  function navItem(k,label,active,onClick,iconKey,badgeCount){
     var ico=ICONS[iconKey]?ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ICONS[iconKey].map(function(d,i){return ce('path',{key:i,d:d});})):null;
-    return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},ico,ce('span',null,label));
+    var kids=[ico,ce('span',{key:'lbl'},label)];
+    if(badgeCount) kids.push(ce('span',{key:'badge',className:'nav-badge'},badgeCount>99?'99+':String(badgeCount)));
+    return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},kids);
   }
   function goTab(id){ if(window.CRM&&window.CRM.setTab) window.CRM.setTab(id); setMobNav(false); }
   function goLead(item){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); setMobNav(false); }
@@ -925,7 +943,11 @@ function CRMHost(props){
         ce('div',{className:'nav-label'},'Tracking & Claims'),
         MAIN_NAV.map(function(n){ return navItem('m-'+n.id,n.label,tab===n.id,function(){goTab(n.id);},n.icon); }),
         ce('div',{className:'nav-label'},'Lead Generation'),
-        LEADS_SUBNAV.map(function(it){ return navItem('l-'+it.dest+'-'+it.key,it.label,leadActive(it),function(){goLead(it);},it.icon); }),
+        LEADS_SUBNAV.reduce(function(acc,it){
+          if(it.group) acc.push(ce('div',{key:'lg-'+it.group,className:'nav-label nav-sublabel'},it.group));
+          acc.push(navItem('l-'+it.dest+'-'+it.key,it.label,leadActive(it),function(){goLead(it);},it.icon,it.badge==='inbox'?inboxN:0));
+          return acc;
+        },[]),
         isAdmin?ce('div',{className:'nav-label',key:'setup-lbl'},'Setup'):null,
         isAdmin?navItem('m-regions','Region rules',tab==='regions',function(){goTab('regions');},'globe'):null,
         ce('div',{className:'nav-spacer',key:'spacer'}),
@@ -1042,6 +1064,16 @@ function App(){
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(ce(App));
+
+/* ── Service worker: precache the app shell + self-hosted capture libs and
+   runtime-cache everything else, so Show Mode survives dead venue wifi once
+   loaded (home-screen install + #capture deep link). Registered relative to
+   the page so its scope is the GitHub Pages subpath. Never touches Supabase. */
+if('serviceWorker' in navigator){
+  window.addEventListener('load',function(){
+    try{ navigator.serviceWorker.register('sw.js').catch(function(){}); }catch(e){}
+  });
+}
 </script>
 </body>
 </html>

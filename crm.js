@@ -2657,16 +2657,36 @@ window.CRM = (function(){
   function lmSearch(v){ LM.q=v; clearTimeout(lmSearch._t); lmSearch._t=setTimeout(function(){ render(); var el=$('lm_q'); if(el){ el.focus(); el.value=LM.q; try{ el.selectionStart=el.selectionEnd=el.value.length; }catch(e){} } },160); }
   function lmSetF(k,v){ LM.f[k]=v; render(); }
 
+  /* In-view segment tabs for the consolidated Leads / My Work / Funnel views (5-item sidebar).
+     Reuses the .lsub/.lsubt styling; each tab drives leadNav(dest,key) and highlights against
+     activeLeadKey(). tabs = [ [key, label, count|'' , countBadgeClass], … ]. */
+  function lsegBar(dest,tabs){
+    var cur=activeLeadKey();
+    return '<div class="lsub">'+tabs.map(function(t){
+      var on=(t[0]===cur);
+      var c=(t[2]!=null&&t[2]!=='')?' <span class="badge '+(t[3]||'badge-n')+'" style="margin-left:5px">'+esc(String(t[2]))+'</span>':'';
+      return '<span class="lsubt'+(on?' on':'')+'" role="button" tabindex="0" onclick="CRM.leadNav(\''+dest+'\',\''+t[0]+'\')">'+esc(t[1])+c+'</span>';
+    }).join('')+'</div>';
+  }
+
   /* ═══════════════════ LEADS destination ═══════════════════ */
   function renderLeads(){
     var vc=$('viewContent'); if(!vc) return;
-    var pane;
+    var pane, bar='';
     if(LSUB.leads==='enr') pane=paneEnrichment();
     else if(LSUB.leads==='rej') pane=paneReturned();
     else if(LSUB.leads==='cap') pane=paneCapture();
     else pane=paneWorkspace();
-    /* All four Leads views (Workspace/Enrichment/Returned/Capture) are REAL now — no dummy draft/live chrome. */
-    vc.innerHTML='<div class="lead-portal">'+pane+'</div>';
+    /* Segment tabs: All leads · Needs enrichment · Returned. Capture (Show Mode) is its own
+       sidebar item, so it carries NO segment bar. */
+    if(LSUB.leads!=='cap'){
+      var allN=LM.loaded?LM.rows.filter(function(l){return !lmIsReturned(l);}).length:'';
+      var enrN=LM.loaded?LM.rows.filter(lmIsCaptured).length:'';
+      var rejN=LM.loaded?LM.rows.filter(lmIsReturned).length:'';
+      bar=lsegBar('leads',[['ws','All leads',allN,'badge-n'],['enr','Needs enrichment',enrN,'badge-warn'],['rej','Returned',rejN,'badge-fail']]);
+    }
+    /* All Leads views (Workspace/Enrichment/Returned/Capture) are REAL now — no dummy draft/live chrome. */
+    vc.innerHTML='<div class="lead-portal">'+bar+pane+'</div>';
   }
 
   function paneWorkspace(){
@@ -2712,7 +2732,7 @@ window.CRM = (function(){
     if(!list.length) rows='<tr><td colspan="9" class="cell-sub" style="padding:16px;text-align:center">No leads match. Captures from Show Mode and the public form land here.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
       +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> All leads · '+list.length
-      +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
+      +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.leadImport()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.leadQuickAdd()">+ New lead</button></span></div>'
       +filters
       +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
   }
@@ -2727,8 +2747,11 @@ window.CRM = (function(){
     var left='<div class="ldp"><div class="ldp-h">Lead detail · <span class="lot">'+esc(l.id)+'</span> '+esc(l.company)+'</div>'
       +'<div style="padding:13px"><div class="section-title" style="margin-bottom:8px"><span class="section-title-bar"></span> Qualification gates</div>'
       +gates+certWarn
-      +'<div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-primary" style="flex:1" onclick="CRM.leadAccept(\''+l.id+'\')">Accept lead</button>'
-      +'<button class="btn btn-secondary" style="flex:1" onclick="CRM.leadPassOpen(\''+l.id+'\')">Reject…</button></div></div></div>';
+      /* Role bleed fix: marketing can't advance past stage 2, so the sales Accept / Reject decision
+         bar is gone from the marketing lead-detail drawer. Primary actions here are Assign to region
+         / Enrich; Accept / Pass lives in My Work (the sales inbox). */
+      +'<div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-primary" style="flex:1" onclick="CRM.leadAssignOpen()">Assign to region</button>'
+      +'<button class="btn btn-secondary" style="flex:1" onclick="CRM.leadEnrich(\''+l.id+'\')">Enrich</button></div></div></div>';
     var touch='<div class="ldp"><div class="ldp-h">Touches &amp; attribution</div><div style="padding:13px">'
       +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>When</th><th>Campaign</th><th>Source</th><th>By</th></tr></thead><tbody>'
       +'<tr><td class="mono">2026-07-13</td><td>Fruit Attraction 26</td><td>Event · stand visit</td><td>Hoda S.</td></tr>'
@@ -2797,11 +2820,21 @@ window.CRM = (function(){
 
   function capPending(){ return CAP.items.filter(function(r){return !r._synced;}); }
 
+  /* Pick the campaign to pre-select for the rep. Among the active campaigns, prefer the first
+     real one — never a "Test Campaign" — so stand captures don't mis-attribute. */
+  function capDefaultCampaign(list){
+    if(!list||!list.length) return null;
+    var real=list.filter(function(c){ return !/\btest\b/i.test(c.name||''); });
+    return (real[0]||list[0]).id;
+  }
   function capBootstrap(){
     if(CAP.loaded){ capSync(); return; }
     CAP.loaded=true;
+    /* Eager preload the self-hosted capture libs the moment Show Mode mounts — while the rep still
+       likely has signal — instead of at first Scan/Photo tap. Warms the SW cache for offline use. */
+    try{ capLoadScript('lib/jsQR.js').catch(function(){}); capLoadScript('lib/qrcode.min.js').catch(function(){}); capLoadScript('lib/tesseract.min.js').catch(function(){}); }catch(e){}
     capLoadQueue().then(function(items){ CAP.items=items.sort(function(a,b){return (b.captured_at||'').localeCompare(a.captured_at||'');}); capRenderList(); capRenderHead(); capSync(); }).catch(function(){});
-    if(SB) SB.from('crm_campaigns').select('id,name,type,active,public_token').eq('active',true).order('created_at',{ascending:false}).then(function(res){ if(res&&!res.error){ CAP.campaigns=res.data||[]; if(!CAP.campaignId && CAP.campaigns.length) CAP.campaignId=CAP.campaigns[0].id; capRenderHead(); } }).catch(function(){});
+    if(SB) SB.from('crm_campaigns').select('id,name,type,active,public_token').eq('active',true).order('created_at',{ascending:false}).then(function(res){ if(res&&!res.error){ CAP.campaigns=res.data||[]; if(!CAP.campaignId && CAP.campaigns.length) CAP.campaignId=capDefaultCampaign(CAP.campaigns); capRenderHead(); } }).catch(function(){});
     try{ window.addEventListener('online',function(){ CAP.online=true; capRenderHead(); capSync(); }); window.addEventListener('offline',function(){ CAP.online=false; capRenderHead(); }); }catch(e){}
     if(!CAP._timer) CAP._timer=setInterval(function(){ if(CAP.online && capPending().length) capSync(); },20000);
   }
@@ -2902,7 +2935,7 @@ window.CRM = (function(){
   function capScan(){
     var ov=$('cap_scan'); if(ov) ov.style.display='flex';
     capScanState.active=true;
-    capLoadScript('https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js').then(function(){
+    capLoadScript('lib/jsQR.js').then(function(){
       if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) throw new Error('no camera API');
       return navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});
     }).then(function(stream){
@@ -2961,14 +2994,18 @@ window.CRM = (function(){
     capAttachPhoto(file);                 /* always save the photo for documentation */
     capSource='ocr_card';
     toast('Photo attached — reading text…');
-    capLoadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js').then(function(){
+    /* Tesseract's LIBRARY is self-hosted (lib/tesseract.min.js), but its worker + wasm core + eng
+       traineddata (~15 MB) still load lazily from CDN at recognize() time. The service worker
+       runtime-caches those on the FIRST online OCR, so later OCR works offline too. If they can't
+       load (offline, never cached), fail gracefully — the QR scan + manual entry always work. */
+    capLoadScript('lib/tesseract.min.js').then(function(){
       if(!window.Tesseract) throw new Error('OCR engine unavailable');
       return window.Tesseract.recognize(file,'eng');   /* on-device fallback; cloud OCR is the accuracy upgrade */
     }).then(function(res){
       var f=capParseOcr((res&&res.data&&res.data.text)||'');
-      if(!f.email && !f.company && !f.name){ toast('Photo saved. Couldn’t read the text — type the details or read them off the photo.'); return; }
+      if(!f.email && !f.company && !f.name){ toast('Photo saved. Couldn’t read the text — scan the QR or type the 5 fields.'); return; }
       capPrefill(f); toast('Photo saved &amp; text read — check the fields, then Save.');
-    }).catch(function(){ toast('Photo saved. Text-read unavailable — type the details.'); });
+    }).catch(function(){ toast(CAP.online?'Photo saved. Card OCR is unavailable right now — scan the QR or type the 5 fields.':'Photo saved. <b>Card OCR needs a signal</b> — scan the QR or type the 5 fields.'); });
   }
   function capField(id){ var el=$('cap_'+id); return el?(el.value||'').trim():''; }
   function capSave(){
@@ -3017,6 +3054,15 @@ window.CRM = (function(){
     if(pend) return '<span class="badge badge-warn">● '+pend+' pending</span>';
     return '<span class="badge badge-pass">● Online · '+synced+' synced</span>';
   }
+  /* Running "captured today / session" tally shown by the Save button — quick reassurance
+     to the rep (and a little morale) that cards are landing. Session = captures held on this
+     device; today = those with today's date. */
+  function capCountToday(){ var d=new Date().toISOString().slice(0,10); return CAP.items.filter(function(r){ return (r.captured_at||'').slice(0,10)===d; }).length; }
+  function capTallyHtml(){
+    var today=capCountToday(), sess=CAP.items.length;
+    return '<div class="cap-tally"><span class="cap-tally-n">'+today+'</span><span class="cap-tally-l">captured today'+(sess>today?' <span class="cell-sub">· '+sess+' on device</span>':'')+'</span></div>';
+  }
+  function capRenderTally(){ var el=$('cap_tally'); if(el) el.innerHTML=capTallyHtml(); }
   function capHeadHtml(){
     var opts=CAP.campaigns.length ? CAP.campaigns.map(function(c){ return '<option value="'+esc(c.id)+'"'+(c.id===CAP.campaignId?' selected':'')+'>'+esc(c.name)+'</option>'; }).join('') : '<option value="">No active campaign yet</option>';
     return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">'
@@ -3085,8 +3131,8 @@ window.CRM = (function(){
       },function(){ var nt=$('capdet_imgnote'); if(nt) nt.textContent='Photo unavailable.'; }); }catch(e){}
     }
   }
-  function capRenderHead(){ var el=$('cap_head'); if(el) el.innerHTML=capHeadHtml(); }
-  function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); }
+  function capRenderHead(){ var el=$('cap_head'); if(el) el.innerHTML=capHeadHtml(); capRenderTally(); }
+  function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); capRenderTally(); }
 
   function capFld(id,label,ph,type){ return '<div class="fg"><label class="form-label">'+esc(label)+'</label><input class="form-input" id="cap_'+id+'"'+(type?' type="'+type+'"':'')+(ph?' placeholder="'+esc(ph)+'"':'')+' autocomplete="off"/></div>'; }
   /* ── Show-mode chips / type / notes helpers ── */
@@ -3194,7 +3240,7 @@ window.CRM = (function(){
         +'<textarea class="form-input" id="cap_notes" rows="4" placeholder="Tap a chip above or type — buys 40 cont. from Peru, wants wk 8–14…" oninput="CRM.capNotesMirror(\'inline\')" onkeydown="CRM.capNotesKey(event)"></textarea>'
         +'<div class="hint" style="margin-top:4px">Tip: tap <b>⤢ Expand</b> for a full-screen pad, or use your phone keyboard mic to dictate while you talk.</div></div>'
       +'<div class="fg"><label class="form-label">Follow-up actions <span class="cell-sub" style="text-transform:none;letter-spacing:0">what we owe this lead</span></label><div class="capchips" id="cap_followups">'+capFollowupsHtml()+'</div></div>'
-      +'<div class="gset"><button class="btn btn-primary" onclick="CRM.capSave()">Save &amp; capture next</button><button class="btn btn-secondary" onclick="CRM.capClear()">Clear</button></div>'
+      +'<div class="gset" style="align-items:center"><button class="btn btn-primary" onclick="CRM.capSave()">Save &amp; capture next</button><button class="btn btn-secondary" onclick="CRM.capClear()">Clear</button><span id="cap_tally" style="margin-left:auto">'+capTallyHtml()+'</span></div>'
       +'<div class="hint" style="margin-top:8px">Scan a digital card’s QR, snap a paper card (OCR), or type it — then <b>Save</b>. Everything saves on the device instantly and syncs when online, so dead stand wifi never loses a card.</div>'
       +'</div>';
     var list='<div class="card">'
@@ -3208,7 +3254,9 @@ window.CRM = (function(){
   function renderInbox(){
     var vc=$('viewContent'); if(!vc) return;
     /* Both real now: Lead inbox = region-assigned & unclaimed; My pipeline = flagged (claimed) to me. */
-    vc.innerHTML='<div class="lead-portal">'+(LSUB.inbox==='pip'?panePipeline():paneInbox())+'</div>';
+    var inbN=LM.loaded?inboxList().length:'';
+    var bar=lsegBar('inbox',[['inbox','Inbox',inbN,'badge-fail'],['pip','My pipeline','','']]);
+    vc.innerHTML='<div class="lead-portal">'+bar+(LSUB.inbox==='pip'?panePipeline():paneInbox())+'</div>';
   }
   /* Lead inbox = leads at the Assigned stage (region set) with no owner flag yet.
      Per-rep region routing (each rep sees only their region), the accept-race and SLA timers are Phase-2. */
@@ -3251,18 +3299,21 @@ window.CRM = (function(){
     var rows=mine.map(function(l){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'</td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'—')+'</td>'
-        +'<td>'+esc(l.product)+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td></tr>';
+        +'<td>'+esc(l.product)+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td>'
+        +'<td onclick="event.stopPropagation()"><button class="btn btn-primary btn-sm" onclick="CRM.leadWonOpen(\''+l.id+'\')">Mark won</button></td></tr>';
     }).join('');
-    if(!mine.length) rows='<tr><td colspan="6" class="cell-sub" style="padding:16px;text-align:center">Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.</td></tr>';
+    if(!mine.length) rows='<tr><td colspan="7" class="cell-sub" style="padding:16px;text-align:center">Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.</td></tr>';
     return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> My pipeline · '+mine.length+' lead(s) assigned to me'
       +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Region</th><th>Product</th><th>Stage</th><th>Assigned</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Region</th><th>Product</th><th>Stage</th><th>Assigned</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
   }
 
   /* ═══════════════════ FUNNEL destination ═══════════════════ */
   function renderLeadFunnel(){
     var vc=$('viewContent'); if(!vc) return;
-    vc.innerHTML='<div class="lead-portal">'+draftBanner()+liveBar()+(LSUB.funnel==='conv'?paneConversion():paneBoard())+'</div>';
+    /* Board / Metrics toggle (Conversion is labelled "Metrics" here). */
+    var bar=lsegBar('funnel',[['board','Board','',''],['conv','Metrics','','']]);
+    vc.innerHTML='<div class="lead-portal">'+bar+draftBanner()+(LSUB.funnel==='conv'?paneConversion():paneBoard())+'</div>';
   }
   var STRIPE={Grapes:'#7a4ea8',Mango:'#c06030',Citrus:'#b0304a',Pomegranate:'#b0304a'};
   function paneBoard(){
@@ -3399,7 +3450,7 @@ window.CRM = (function(){
       +'<div style="display:flex;gap:6px"><input class="form-input mono" id="camp_qr_link" readonly value="'+esc(link)+'" style="flex:1;font-size:12px"/><button class="btn btn-secondary btn-sm" onclick="CRM.campCopy(\''+esc(tok)+'\')">Copy</button></div>'
       +'<div class="l-formact"><button class="btn btn-primary" id="camp_qr_dl" onclick="CRM.campQrDownload(\''+esc(name||'campaign')+'\')" disabled>Download QR (PNG)</button><a class="btn btn-secondary" href="'+esc(link)+'" target="_blank" rel="noopener">Open form ↗</a><button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div></div>';
     showDlv('Campaign link & QR',body);
-    capLoadScript('https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a0708418cb7b96fc563eacae0fbf77674/qrcode.min.js').then(function(){
+    capLoadScript('lib/qrcode.min.js').then(function(){
       var box=$('camp_qr_box'); if(!box) return; box.innerHTML='';
       /* correctLevel H (~30% recoverable) so the centre Daltex logo never breaks scanning */
       try{ new window.QRCode(box,{text:link,width:1000,height:1000,correctLevel:window.QRCode.CorrectLevel.H,colorDark:'#22306b',colorLight:'#ffffff'}); campQrDecorate(0); }
@@ -3608,20 +3659,29 @@ window.CRM = (function(){
   }
 
   var wonState=null;
-  function leadWonOpen(id){ var l=leadById(id); if(!l) return; wonState={id:id,kind:'existing'}; leadWonRender(); }
+  /* Resolve a lead for the "Mark won" flow from EITHER the dummy funnel (leadById) or a REAL
+     My-pipeline row (lmById). Returns {id,company,real}. Real leads open the same picker but
+     persistence (converted_by / entity alias) is the Phase-2 job — this pass surfaces the action. */
+  function leadWonResolve(id){
+    var d=leadById(id); if(d) return {id:id,company:d.company,real:false};
+    var r=lmById(id); if(r) return {id:id,company:r.company,real:true};
+    return null;
+  }
+  function leadWonOpen(id){ var l=leadWonResolve(id); if(!l) return; wonState={id:id,kind:'existing',company:l.company,real:l.real}; leadWonRender(); }
   function leadWonRender(){
-    var l=leadById(wonState.id); if(!l) return;
+    if(!wonState) return; var co=wonState.company||'this lead';
     var existing=['Gulf Green Import Co','Meridian Fresh Ltd','AMC Fresh','Total Produce'];
     var body='<div class="l-form"><div class="l-formnote">The invoiced entity often differs from the lead name. Pick the client/sub-client it ships under (or create one). A persistent alias is stored so later shipments attribute automatically.</div>'
-      +'<div class="l-qhdr">'+esc(l.company)+' → shipped</div>'
+      +'<div class="l-qhdr">'+esc(co)+' → shipped</div>'
       +'<div class="l-seg" style="margin-top:8px"><span class="l-segb'+(wonState.kind==='existing'?' on':'')+'" onclick="CRM.leadWonKind(\'existing\')">Existing entity</span><span class="l-segb'+(wonState.kind==='new'?' on':'')+'" onclick="CRM.leadWonKind(\'new\')">Create new</span></div>'
-      +(wonState.kind==='existing'?selField('lw_entity','Ships under',existing.map(function(e){return [e,e];}),l.company):field('lw_entity','New entity name',l.company,''))
-      +'<label class="form-label" style="margin-top:8px"><input type="checkbox" id="lw_alias" checked style="width:auto;margin-right:6px"/>Store alias “'+esc(l.company)+'” → selected entity</label>'
+      +(wonState.kind==='existing'?selField('lw_entity','Ships under',existing.map(function(e){return [e,e];}),co):field('lw_entity','New entity name',co,''))
+      +'<label class="form-label" style="margin-top:8px"><input type="checkbox" id="lw_alias" checked style="width:auto;margin-right:6px"/>Store alias “'+esc(co)+'” → selected entity</label>'
+      +(wonState.real?'<div class="alert-warn" style="margin-top:8px">Conversion write (<span class="mono">converted_by</span> + entity alias) lands with the Phase-2 lead rules — this records intent only.</div>':'')
       +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.leadWonSave()">Mark shipped → stage 6</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
     showDlv('Mark as shipped',body);
   }
   function leadWonKind(k){ if(wonState){ wonState.kind=k; leadWonRender(); } }
-  function leadWonSave(){ var l=leadById(wonState.id); if(!l) return; var entity=($('lw_entity')||{}).value||l.company; l.stage=6; closeDlv(); toast('<b>'+esc(l.company)+'</b> shipped under <b>'+esc(entity)+'</b>. Alias stored.'); render(); }
+  function leadWonSave(){ if(!wonState) return; var entity=($('lw_entity')||{}).value||wonState.company; var d=leadById(wonState.id); if(d) d.stage=6; closeDlv(); toast('<b>'+esc(wonState.company)+'</b> shipped under <b>'+esc(entity)+'</b>. Alias stored.'); render(); }
 
   function leadImport(){
     var body='<div class="l-form"><div class="l-formnote">Paste rows or a CSV. Pre-flight classifies every row before anything imports.</div>'
@@ -3699,6 +3759,7 @@ window.CRM = (function(){
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
     lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSearch:lmSearch, lmSetF:lmSetF,
+    leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
     leadQualifyOpen:leadQualifyOpen, leadGate:leadGate, leadQualifySave:gm(leadQualifySave),
@@ -4303,6 +4364,10 @@ function injectCrmCss(){
 .crmv .ldp{border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;background:#fff}
 .crmv .ldp-h{background:var(--bg2);padding:9px 13px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
 .crmv .gset{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+/* show-mode "captured today" tally by the Save button */
+.crmv .cap-tally{display:inline-flex;align-items:baseline;gap:7px;white-space:nowrap}
+.crmv .cap-tally-n{font-family:var(--font-display,var(--font-body));font-size:26px;line-height:1;font-weight:600;color:var(--accent)}
+.crmv .cap-tally-l{font-size:11.5px;color:var(--text3)}
 /* in-view sub-tabs */
 .crmv .lsub{display:flex;gap:2px;border-bottom:2px solid var(--border2);margin-bottom:14px;overflow-x:auto}
 .crmv .lsubt{font-size:13px;padding:8px 12px;cursor:pointer;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:color .15s}
