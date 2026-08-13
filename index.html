@@ -861,11 +861,14 @@ function CRMHost(props){
             } else if(_tries>120){ clearInterval(_iv); }
           },120);
         } else {
-          /* any other tab deep link, e.g. #shipments / #campaigns / #enrichment; unknown → dashboard */
+          /* any other tab deep link, e.g. #shipments / #campaigns / #enrichment; unknown → dashboard.
+             Defer the actual nav to a fresh task: onTab's setState does NOT reflect when fired
+             synchronously inside this mount effect, but does from a later task (verified). */
           var _sl=_initHash.replace(/^#/,'').toLowerCase();
           if(!NAV_ROUTES[_sl]) _sl='dashboard';
-          slugRef.current=_sl; crmRouteApply(_sl);
+          slugRef.current=_sl;
           if(location.hash!=='#'+_sl) location.hash='#'+_sl;
+          setTimeout(function(){ crmRouteApply(_sl); },0);
         }
       }catch(e){}
       readyRef.current=true;
