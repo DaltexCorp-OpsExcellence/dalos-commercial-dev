@@ -2570,6 +2570,7 @@ window.CRM = (function(){
   function lmIsMine(l){ var uid=(USER&&USER.id)||null; return !!l.assignedTo && uid && l.assignedTo===uid && !lmIsReturned(l); }
   function lmStageBadge(l){
     if(lmIsReturned(l)) return bdg('badge-fail','Returned');
+    if(l.assignedTo && l.stage>=3){ var s=L_STAGES[l.stage]; if(s) return bdg(s.badge||'badge-pass',s.label); }
     if(lmIsAssigned(l)) return bdg('badge-pass','Assigned');
     if(lmIsQualified(l)) return bdg('badge-warn','Qualified');
     return bdg('badge-hold','Captured');
@@ -2584,6 +2585,30 @@ window.CRM = (function(){
       if(res&&res.error){ toast('<b>Save failed.</b> '+esc(res.error.message||'')); return; }
       closeDlv(); toast(msg||'Saved.'); lmReload();
     }).catch(function(e){ toast('<b>Save failed.</b> '+esc(String(e))); });
+  }
+
+  /* ── deal-stage progression (Accepted → Engaged → Specs → Quoted → Shipped → Repeat) ──
+     Advanceable only once a lead has an owner (Accepted). Who: the owner, a manager of the lead's
+     region, or an admin (lmIsManagerOf already folds in admin). Persists in crm_leads.stage (3–7). */
+  function lmCanAdvance(l){ return !lmIsReturned(l) && !!l.assignedTo && (lmIsMine(l)||lmIsManagerOf(l.assignedRegion)); }
+  function lmDealStepperHtml(l){
+    if(lmIsReturned(l)||!l.assignedTo) return '';
+    var cur=(l.stage>=2?l.stage:2);
+    var chips=L_STAGES.slice(2).map(function(s){ return '<span class="badge '+(s.i===cur?(s.badge||'badge-pass'):'badge-n')+'"'+(s.i===cur?'':' style="opacity:.45"')+'>'+esc(s.label)+'</span>'; }).join(' ');
+    var ctl='';
+    if(lmCanAdvance(l)){
+      var parts=[];
+      if(cur>2) parts.push('<button class="btn btn-secondary btn-sm" onclick="CRM.lmSetDealStage(\''+l.id+'\','+(cur-1)+')">← '+esc(L_STAGES[cur-1].label)+'</button>');
+      if(cur<7) parts.push('<button class="btn btn-primary btn-sm" onclick="CRM.lmSetDealStage(\''+l.id+'\','+(cur+1)+')">'+esc(L_STAGES[cur+1].label)+' →</button>');
+      ctl='<div style="display:flex;gap:6px;margin-top:8px">'+parts.join('')+'</div>';
+    }
+    return '<div class="l-qsec">Deal stage</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+chips+'</div>'+ctl;
+  }
+  function lmSetDealStage(id,n){
+    var l=lmById(id); if(!l) return;
+    if(!lmCanAdvance(l)){ toast('<b>Not permitted</b> · only the owner, a region manager or an admin can move the deal stage.'); return; }
+    n=Math.max(2,Math.min(7,n|0)); var s=L_STAGES[n];
+    lmUpdate(id,{ stage:n },'<b>'+esc(l.company)+'</b> → '+esc(s?s.label:('stage '+n))+'.');
   }
 
   /* ── real leads · row-level actions ── */
@@ -2607,6 +2632,7 @@ window.CRM = (function(){
       +row('Source · campaign',esc(lmSourceLabel(l.source))+(l.campaign?' · '+esc(l.campaign):''))
       +row('Captured',esc(lmDate(l.capturedAt))+' · '+esc(l.age))
       +(l.notes?row('Notes',esc(l.notes).replace(/\n/g,'<br>')):'')
+      +lmDealStepperHtml(l)
       +lmThreadHtml(l);
     var acts=[];
     acts.push('<button class="btn btn-secondary" onclick="CRM.lmEnrichOpen(\''+l.id+'\')">Enrich</button>');
@@ -3658,7 +3684,7 @@ window.CRM = (function(){
      claimed OR assigned to a rep). Stages 3–7 (Engaged→Repeat) are deal stages we don't capture yet.
      Returned = a side exit (Rejected), not a column. */
   function lmFunnelStage(l){
-    if(l.assignedTo) return 2;                        // Accepted — claimed or assigned to a rep
+    if(l.assignedTo) return (l.stage>=3?l.stage:2);   // Accepted, or a deal stage the owner advanced to (3–7)
     if(lmIsQualified(l)||lmIsAssigned(l)) return 1;   // Qualified — incl. assigned-to-region, unclaimed
     return 0;                                         // Captured
   }
@@ -4130,7 +4156,7 @@ window.CRM = (function(){
     lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
