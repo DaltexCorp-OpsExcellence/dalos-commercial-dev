@@ -2570,8 +2570,14 @@ window.CRM = (function(){
   function lmIsMine(l){ var uid=(USER&&USER.id)||null; return !!l.assignedTo && uid && l.assignedTo===uid && !lmIsReturned(l); }
   function lmStageBadge(l){
     if(lmIsReturned(l)) return bdg('badge-fail','Returned');
-    if(l.assignedTo && l.stage>=3){ var s=L_STAGES[l.stage]; if(s) return bdg(s.badge||'badge-pass',s.label); }
-    if(lmIsAssigned(l)) return bdg('badge-pass','Assigned');
+    /* Has an owner (claimed by a member OR assigned to a member by a manager) = Accepted,
+       and stays Accepted / advances through the deal stages until it's returned to marketing. */
+    if(l.assignedTo){
+      if(l.stage>=3){ var s=L_STAGES[l.stage]; if(s) return bdg(s.badge||'badge-pass',s.label); }
+      return bdg('badge-pass','Accepted');
+    }
+    /* Routed to a region but not yet owned — waiting in that region's inbox to be claimed/assigned. */
+    if(lmIsAssigned(l)) return bdg('badge-n','Assigned to region');
     if(lmIsQualified(l)) return bdg('badge-warn','Qualified');
     return bdg('badge-hold','Captured');
   }
