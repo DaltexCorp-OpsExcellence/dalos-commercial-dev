@@ -2979,7 +2979,7 @@ window.CRM = (function(){
     if(!list.length) rows='<tr><td colspan="9" class="cell-sub" style="padding:16px;text-align:center">No leads match. Captures from Show Mode and the public form land here.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
       +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> '+(lmRegionScoped()?'Leads in your region(s)':'All leads')+' · '+list.length
-      +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.leadImport()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.lmNewOpen()">+ New lead</button></span></div>'
+      +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.lmImportOpen()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.lmNewOpen()">+ New lead</button></span></div>'
       +filters
       +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
   }
@@ -4066,7 +4066,7 @@ window.CRM = (function(){
   function renderCampaigns(){
     var vc=$('viewContent'); if(!vc) return;
     if(!CAMP.loaded){ if(!CAMP.loading) campLoad();
-      vc.innerHTML='<div class="lead-portal">'+liveBar()+'<div class="card"><div class="cell-sub" style="padding:6px 2px">Loading campaigns…</div></div></div>'; return; }
+      vc.innerHTML='<div class="lead-portal"><div class="card"><div class="cell-sub" style="padding:6px 2px">Loading campaigns…</div></div></div>'; return; }
     var items=CAMP.items;
     var active=items.filter(function(c){return c.active;}).length;
     var totLeads=items.reduce(function(a,c){return a+Number(c.lead_count||0);},0);
@@ -4089,7 +4089,7 @@ window.CRM = (function(){
       return '<tr'+(c.active?'':' style="opacity:.62"')+'><td>'+logo+'</td><td><b>'+esc(c.name)+'</b></td><td>'+bdg('badge-n',c.type||'—')+'</td><td class="mono">'+esc(dates)+'</td><td class="mono">'+(c.cost!=null?sym+Number(c.cost).toLocaleString():'—')+'</td><td class="mono">'+Number(c.lead_count||0)+'</td><td>'+pill+'</td><td>'+acts+'</td></tr>';
     }).join('');
     if(!items.length) rows='<tr><td colspan="8" class="cell-sub" style="padding:16px;text-align:center">No campaigns yet. Create one to generate a stand QR.</td></tr>';
-    vc.innerHTML='<div class="lead-portal">'+liveBar()
+    vc.innerHTML='<div class="lead-portal">'
       +'<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
       +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Campaigns <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.campRefresh(this)">↻ Refresh</button><button class="btn btn-primary btn-sm" onclick="CRM.campNew()">+ New campaign</button></span></div>'
       +'<div class="l-formhint" style="margin:0 0 10px">Each campaign carries its own capture link + QR. Deactivating a campaign instantly stops its public form from accepting leads.</div>'
@@ -4235,6 +4235,53 @@ window.CRM = (function(){
   function leadWonKind(k){ if(wonState){ wonState.kind=k; leadWonRender(); } }
   function leadWonSave(){ if(!wonState) return; var entity=($('lw_entity')||{}).value||wonState.company; var d=leadById(wonState.id); if(d) d.stage=6; closeDlv(); toast('<b>'+esc(wonState.company)+'</b> shipped under <b>'+esc(entity)+'</b>. Alias stored.'); render(); }
 
+  /* ── Bulk import — REAL (paste rows → INSERT crm_leads, source='csv_import') ── */
+  var lmImp=null;
+  function lmImportOpen(){
+    if(!canManageLeads()){ toast('<b>Not permitted</b> · you can’t create leads'); return; }
+    lmImp=null;
+    var camps=(CAMP.items||[]).filter(function(c){return c.active;});
+    var body='<div class="l-form"><div class="l-formnote">Paste one lead per line. Columns: <b>Company, Country, Product, Contact, Email, Phone</b> — only Company is required; separate multiple products with “;”. Pre-flight checks for duplicates before importing to the real leads list.</div>'
+      +(camps.length?selField('li_campaign','Campaign (optional)',[['','— none —']].concat(camps.map(function(c){return [c.id,c.name];})),''):'')
+      +'<label class="form-label" style="margin-top:8px">Paste rows / CSV</label><textarea class="form-input" id="li_csv" rows="6" style="font-family:var(--font-mono);font-size:12px" placeholder="Meridian Fresh Ltd, United Kingdom, Grapes, J. Whitfield, jw@meridian.co.uk\nNordfrucht GmbH, Germany, Grapes;Citrus"></textarea>'
+      +'<div id="li_pre"></div>'
+      +'<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.lmImportPre()">Pre-flight</button><button class="btn btn-primary" id="li_go" disabled onclick="CRM.lmImportRun()">Import ready rows</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
+    showDlv('Bulk import leads',body);
+  }
+  function lmImpParse(){
+    return (($('li_csv')||{}).value||'').split('\n').map(function(x){return x.trim();}).filter(Boolean).map(function(ln){
+      var p=ln.split(',').map(function(x){return x.trim();});
+      return { company:p[0]||'', country:p[1]||'', product:p[2]||'', contact:p[3]||'', email:p[4]||'', phone:p[5]||'' };
+    }).filter(function(r){return r.company;});
+  }
+  function lmImportPre(){
+    var rows=lmImpParse(), ready=[], dup=[], have={}, seen={};
+    LM.rows.forEach(function(l){ have[(l.company||'').toLowerCase()]=1; });
+    rows.forEach(function(r){ var k=r.company.toLowerCase(); if(have[k]||seen[k]) dup.push(r); else { seen[k]=1; ready.push(r); } });
+    lmImp={ready:ready,dup:dup};
+    var pre=$('li_pre'); if(pre) pre.innerHTML='<div class="ldp" style="margin-top:10px"><div class="ldp-h">Pre-flight · '+rows.length+' row(s)</div><div style="padding:10px 12px">'
+      +'<div class="gate"><span class="gate-i gate-ok">✓</span> '+ready.length+' new lead(s) ready to import</div>'
+      +'<div class="gate"><span class="gate-i gate-w">!</span> '+dup.length+' duplicate(s) — already in leads, will be skipped</div></div></div>';
+    var go=$('li_go'); if(go) go.disabled=ready.length===0;
+  }
+  function lmImportRun(){
+    if(!canManageLeads()){ toast('<b>Not permitted</b>'); return; }
+    if(!lmImp||!lmImp.ready.length){ toast('Run Pre-flight first — nothing ready.'); return; }
+    if(!SB){ toast('No connection.'); return; }
+    var camp=(($('li_campaign')||{}).value||'')||null;
+    var recs=lmImp.ready.map(function(r){
+      var prods=r.product?r.product.split(';').map(function(x){return x.trim();}).filter(Boolean).map(function(x){ var m=CAP_PRODUCTS.filter(function(p){return p.toLowerCase()===x.toLowerCase();})[0]; return m||x; }):[];
+      return { source:'csv_import', status:'captured', stage:0, company_name:r.company,
+        country:r.country||null, product_interest:(prods.length?prods:null),
+        contact_name:r.contact||null, email:r.email||null, phone:r.phone||null, campaign_id:camp };
+    });
+    var btn=$('li_go'); if(btn){ btn.disabled=true; btn.textContent='Importing…'; }
+    SB.from('crm_leads').insert(recs).select('id').then(function(res){
+      if(res&&res.error){ var pre=$('li_pre'); if(pre) pre.innerHTML='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(res.error.message||'')+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} return; }
+      var n=(res&&res.data&&res.data.length)||recs.length; closeDlv(); toast(n+' lead(s) imported to the enrichment queue.'); lmReload();
+    },function(e){ var pre=$('li_pre'); if(pre) pre.innerHTML='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(String(e))+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} });
+  }
+
   function leadImport(){
     var body='<div class="l-form"><div class="l-formnote">Paste rows or a CSV. Pre-flight classifies every row before anything imports.</div>'
       +selField('li_campaign','Campaign',L_CAMPAIGNS.map(function(c){return [c.id,c.name];}),'C1')
@@ -4317,6 +4364,7 @@ window.CRM = (function(){
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
     lmNewOpen:lmNewOpen, lmNewChip:lmNewChip, lmNewCardPick:lmNewCardPick, lmNewCardRemove:lmNewCardRemove, lmNewSave:gm(lmNewSave), lmNewForce:gm(lmNewForce),
+    lmImportOpen:lmImportOpen, lmImportPre:lmImportPre, lmImportRun:gm(lmImportRun),
     leadQualifyOpen:leadQualifyOpen, leadGate:leadGate, leadQualifySave:gm(leadQualifySave),
     leadAssignOpen:leadAssignOpen, leadPickRegion:leadPickRegion, leadAssignSave:gm(leadAssignSave),
     leadEscalateOpen:leadEscalateOpen, leadEscalate:gs(leadEscalate),
