@@ -3712,7 +3712,7 @@ window.CRM = (function(){
       +'<div class="gset cap-actions" style="align-items:center"><button class="btn btn-primary" id="cap_savebtn" onclick="CRM.capSave()">'+(CAP.editingId?'Update lead':'Save &amp; capture next')+'</button><button class="btn btn-secondary" onclick="'+(CAP.editingId?'CRM.capCancelEdit()':'CRM.capClear()')+'">'+(CAP.editingId?'Cancel edit':'Clear')+'</button><span id="cap_tally" style="margin-left:auto">'+capTallyHtml()+'</span></div>'
       +'</div>';
     var list='<div class="card">'
-      +'<div class="section-title"><span class="section-title-bar"></span> Captured this session <span class="link-btn" style="margin-left:auto" onclick="CRM.capExport()">Export CSV ↓</span></div>'
+      +'<div class="section-title"><span class="section-title-bar"></span> Campaign captures <span class="link-btn" style="margin-left:auto" onclick="CRM.capExport()">Export CSV ↓</span></div>'
       +'<div id="cap_list">'+capListHtml()+'</div></div>';
     var datalist='<datalist id="cap_countries">'+['United Kingdom','Germany','Netherlands','France','Belgium','Spain','Italy','Poland','UAE','Saudi Arabia','Qatar','Kuwait','Russia','Turkey','China','India'].map(function(c){return '<option value="'+esc(c)+'"></option>';}).join('')+'</datalist>';
     return '<div class="grid2" style="align-items:start">'+form+list+'</div>'+datalist+capScanOverlay()+capNotesOverlay();
