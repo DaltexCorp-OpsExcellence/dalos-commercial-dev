@@ -2949,7 +2949,7 @@ window.CRM = (function(){
   }
 
   /* ═══════════════════ SHOW MODE — real capture (offline-safe, writes crm_leads) ═══════════════════ */
-  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporter:'',importer:'',bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null};
+  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporters:{},importers:{},signals:{},scanned:{},bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null};
   var CAP_PRODUCTS=['Potatoes','Citrus','Grapes','Onions','Spring Onions','Pomegranate','Field Crops','Mango','Carrots','Sweet Potato','Pumpkin','Peanuts','Other'];
   var CAP_EXP=['Grower','Trader','Association','Other'];
   var CAP_IMP=['Agent','Retailer','Wholesaler','Other'];
@@ -3033,9 +3033,9 @@ window.CRM = (function(){
   }
   function capPrefill(f){
     [['company','company'],['name','contact'],['role','role'],['email','email'],['phone','phone'],['website','website'],['country','country'],['address','address']].forEach(function(p){
-      if(f[p[0]]){ var el=$('cap_'+p[1]); if(el) el.value=f[p[0]]; }
+      if(f[p[0]]){ var el=$('cap_'+p[1]); if(el){ el.value=f[p[0]]; el.classList.add('scanned'); CAP.scanned[p[1]]=true; } }
     });
-    if(f.role||f.website||f.country||f.address) capMoreOpen();
+    /* all fields are inline now — nothing to expand */
   }
 
   function capParseVcard(t){
@@ -3189,8 +3189,12 @@ window.CRM = (function(){
     if(!company){ toast('Company is required.'); var c0=$('cap_company'); if(c0) c0.focus(); return; }
     var products=CAP_PRODUCTS.filter(function(p){ return CAP.chips[p]; });
     var extra={};
-    if(CAP.exporter) extra.exporter_type=CAP.exporter;
-    if(CAP.importer) extra.importer_type=CAP.importer;
+    var exps=CAP_EXP.filter(function(v){ return CAP.exporters[v]; });
+    var imps=CAP_IMP.filter(function(v){ return CAP.importers[v]; });
+    if(exps.length) extra.exporter_type=exps.join(', ');   /* multi-select → comma-joined (jsonb, back-compatible with the single-value readers) */
+    if(imps.length) extra.importer_type=imps.join(', ');
+    var sigs=CAP_TAGS.filter(function(t){ return CAP.signals[t]; });
+    if(sigs.length) extra.tags=sigs;                        /* structured lead signal — queryable, not buried in notes */
     var po=capField('products_other'); if(po && CAP.chips['Other']) extra.products_other=po;
     var pi=capField('products_industries'); if(pi) extra.products_industries=pi;
     var tc=capField('trade_countries'); if(tc) extra.trade_countries=tc;
@@ -3208,8 +3212,8 @@ window.CRM = (function(){
     if(CAP.groupData) rec._group_data=CAP.groupData; /* group photo with the lead → uploaded to storage on sync */
     capPut(rec).then(function(){ CAP.items.unshift(rec); toast('Captured <b>'+esc(company)+'</b> — '+(CAP.online?'syncing…':'queued offline')); capClear(); capSync(); capRenderList(); capRenderHead(); var c=$('cap_company'); if(c) c.focus(); }).catch(function(){ toast('Could not save capture on the device.'); });
   }
-  function capClear(){ capSource='manual'; CAP.chips={}; CAP.exporter=''; CAP.importer=''; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; capRenderGroupChip();
-    ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; } });
+  function capClear(){ capSource='manual'; CAP.chips={}; CAP.exporters={}; CAP.importers={}; CAP.signals={}; CAP.scanned={}; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; capRenderGroupChip();
+    ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
     var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
     var o=$('cap_products_other'); if(o) o.style.display='none'; capRenderPhotoChip(); }
   function capSetCampaign(id){ CAP.campaignId=id; capRenderHead(); }
@@ -3253,7 +3257,9 @@ window.CRM = (function(){
       +CAP.items.slice(0,50).map(function(r){
         var t=r.captured_at?r.captured_at.slice(11,16):'';
         var sync=r._synced?'<span class="badge badge-pass" title="synced to lead store">✓</span>':'<span class="badge badge-warn" title="pending sync">…</span>';
-        return '<tr style="cursor:pointer" onclick="CRM.capOpenDetail(\''+esc(r.client_uuid)+'\')"><td class="mono">'+esc(t)+'</td><td>'+esc(r.company_name||'—')+'</td><td>'+esc(r.contact_name||'—')+(r.contact_role?'<div class="cell-sub">'+esc(r.contact_role)+'</div>':'')+'</td><td class="cell-sub">'+esc(r.email||'—')+'</td><td class="right">'+sync+'</td></tr>';
+        var tags=(r.raw_payload&&r.raw_payload.tags)||[];
+        var dot=tags.indexOf('🔥 Hot lead')>=0?'<span class="cap-dot hot" title="Hot lead"></span>':(tags.length?'<span class="cap-dot warm" title="'+esc(tags.join(', '))+'"></span>':'');
+        return '<tr style="cursor:pointer" onclick="CRM.capOpenDetail(\''+esc(r.client_uuid)+'\')"><td class="mono">'+esc(t)+'</td><td>'+dot+esc(r.company_name||'—')+'</td><td>'+esc(r.contact_name||'—')+(r.contact_role?'<div class="cell-sub">'+esc(r.contact_role)+'</div>':'')+'</td><td class="cell-sub">'+esc(r.email||'—')+'</td><td class="right">'+sync+'</td></tr>';
       }).join('')+'</tbody></table></div>';
   }
   function capOpenDetail(uuid){
@@ -3295,6 +3301,7 @@ window.CRM = (function(){
       +row('Website', r.website)
       +row('Country', r.country)
       +row('Address', r.address)
+      +row('Lead signal', rp.tags)
       +row('Products of interest', r.product_interest)
       +row('Other products', rp.products_other)
       +row('Products / industries', rp.products_industries)
@@ -3325,12 +3332,20 @@ window.CRM = (function(){
   function capRenderHead(){ var el=$('cap_head'); if(el) el.innerHTML=capHeadHtml(); capRenderTally(); }
   function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); capRenderTally(); }
 
-  function capFld(id,label,ph,type){ return '<div class="fg"><label class="form-label">'+esc(label)+'</label><input class="form-input" id="cap_'+id+'"'+(type?' type="'+type+'"':'')+(ph?' placeholder="'+esc(ph)+'"':'')+' autocomplete="off"/></div>'; }
+  function capFld(id,label,ph,type){ return '<div class="fg"><label class="form-label">'+esc(label)+'</label><input class="form-input" id="cap_'+id+'"'+(type?' type="'+type+'"':'')+(ph?' placeholder="'+esc(ph)+'"':'')+' autocomplete="off" oninput="CRM.capUnmark(this)"/></div>'; }
+  /* conversation-stage header for the show-mode form */
+  function capStage(n,lbl,cue){ return '<div class="capstage"><span class="num">'+n+'</span><span class="swrap"><span class="lbl">'+lbl+'</span><span class="cue">'+cue+'</span></span><span class="bar"></span></div>'; }
   /* ── Show-mode chips / type / notes helpers ── */
   function capProdChipsHtml(){ return CAP_PRODUCTS.map(function(p){ return '<button type="button" class="capchip'+(CAP.chips[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.capToggleProd(this)">'+esc(p)+'</button>'; }).join(''); }
   function capToggleProd(btn){ var p=btn.getAttribute('data-prod'); CAP.chips[p]=!CAP.chips[p]; btn.classList.toggle('on',!!CAP.chips[p]); if(p==='Other'){ var o=$('cap_products_other'); if(o){ o.style.display=CAP.chips[p]?'block':'none'; if(CAP.chips[p]) o.focus(); else o.value=''; } } }
-  function capTypeChipsHtml(kind){ var arr=kind==='exp'?CAP_EXP:CAP_IMP, cur=kind==='exp'?CAP.exporter:CAP.importer; return arr.map(function(v){ return '<button type="button" class="capchip sm'+(cur===v?' on':'')+'" data-k="'+kind+'" data-v="'+esc(v)+'" onclick="CRM.capType(this)">'+esc(v)+'</button>'; }).join(''); }
-  function capType(btn){ var k=btn.getAttribute('data-k'), v=btn.getAttribute('data-v'); var now; if(k==='exp'){ CAP.exporter=(CAP.exporter===v?'':v); now=CAP.exporter; } else { CAP.importer=(CAP.importer===v?'':v); now=CAP.importer; } var wrap=btn.parentNode; if(wrap){ var cs=wrap.querySelectorAll('.capchip'); for(var i=0;i<cs.length;i++) cs[i].classList.remove('on'); } if(now===v) btn.classList.add('on'); }
+  function capTypeChipsHtml(kind){ var arr=kind==='exp'?CAP_EXP:CAP_IMP, map=kind==='exp'?CAP.exporters:CAP.importers; return arr.map(function(v){ return '<button type="button" class="capchip sm'+(map[v]?' on':'')+'" data-k="'+kind+'" data-v="'+esc(v)+'" onclick="CRM.capType(this)">'+esc(v)+'</button>'; }).join(''); }
+  /* multi-select: a company can be more than one type (retailer AND wholesaler) */
+  function capType(btn){ var k=btn.getAttribute('data-k'), v=btn.getAttribute('data-v'); var map=k==='exp'?CAP.exporters:CAP.importers; map[v]=!map[v]; btn.classList.toggle('on',!!map[v]); }
+  function capSignalHtml(){ return CAP_TAGS.map(function(t){ return '<button type="button" class="capchip'+(CAP.signals[t]?' on':'')+'" data-sig="'+esc(t)+'" onclick="CRM.capSignal(this)">'+esc(t)+'</button>'; }).join(''); }
+  function capSignal(btn){ var t=btn.getAttribute('data-sig'); CAP.signals[t]=!CAP.signals[t]; btn.classList.toggle('on',!!CAP.signals[t]); }
+  /* verify-me: fields filled by scan/OCR get an accent bar until the rep edits them */
+  function capMarkScanned(id){ CAP.scanned[id]=true; var el=$('cap_'+id); if(el) el.classList.add('scanned'); }
+  function capUnmark(el){ if(el&&el.classList) el.classList.remove('scanned'); }
   function capTagsHtml(){ return CAP_TAGS.map(function(t){ return '<button type="button" class="captag" data-tag="'+esc(t)+'" onclick="CRM.capQuickTag(this)">'+esc(t)+'</button>'; }).join(''); }
   function capFollowupsHtml(){ return CAP_FOLLOWUPS.map(function(o){ return '<button type="button" class="capchip'+(CAP.followups[o[0]]?' on':'')+'" data-fu="'+o[0]+'" onclick="CRM.capToggleFollowup(this)">'+esc(o[1])+'</button>'; }).join(''); }
   function capToggleFollowup(btn){ var k=btn.getAttribute('data-fu'); CAP.followups[k]=!CAP.followups[k]; btn.classList.toggle('on',!!CAP.followups[k]); }
@@ -3402,39 +3417,53 @@ window.CRM = (function(){
   function paneCapture(){
     capBootstrap();
     var form='<div class="card">'
-      +'<div class="section-title"><span class="section-title-bar"></span> Show mode · stand capture <button type="button" class="link-btn" style="margin-left:auto" onclick="CRM.capAddToHome()">📲 Add to Home Screen</button></div>'
+      +'<div class="cap-head-row"><div><div class="cap-title">Show Mode</div><div class="cap-titlesub">stand capture</div></div><button type="button" class="link-btn" style="margin-left:auto" onclick="CRM.capAddToHome()">📲 Add to Home Screen</button></div>'
       +'<div id="cap_head">'+capHeadHtml()+'</div>'
-      +'<div class="capgrid" style="margin-bottom:12px">'
+      /* capture tools — snap identity before a word is said */
+      +'<div class="capgrid" style="margin-bottom:8px">'
         +'<button type="button" class="capbtn" onclick="CRM.capScan()"><span class="capt">Scan QR / vCard</span><span class="caps">Digital card → fields</span></button>'
-        +'<label class="capbtn" style="cursor:pointer"><span class="capt">Photo of card / badge</span><span class="caps">Saved to the lead · auto-reads text</span><input type="file" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0" onchange="CRM.capOcrPick(this)"/></label>'
+        +'<label class="capbtn" style="cursor:pointer"><span class="capt">Photo of card / badge</span><span class="caps">Saved · auto-reads text</span><input type="file" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0" onchange="CRM.capOcrPick(this)"/></label>'
       +'</div>'
-      +'<div id="cap_photo_chip">'+((typeof CAP!=='undefined'&&CAP.cardData)?'':'')+'</div>'
-      +'<label class="capbtn" style="cursor:pointer;display:block;margin-bottom:10px"><span class="capt">📸 Group photo with the lead</span><span class="caps">For documentation — you &amp; the lead at the stand</span><input type="file" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0" onchange="CRM.capGroupPick(this)"/></label>'
-      +'<div id="cap_group_chip">'+((typeof CAP!=='undefined'&&CAP.groupData)?'':'')+'</div>'
-      +'<div class="grid2">'+capFld('company','Company *','e.g. Nordfrucht GmbH')+capFld('contact','Contact name','')+'</div>'
+      +'<div id="cap_photo_chip"></div>'
+      +'<label class="capbtn cap-group" style="cursor:pointer;width:100%;margin-bottom:4px"><span class="capt">📸 Group photo with the lead</span><span class="caps">documentation — you &amp; the lead</span><input type="file" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0" onchange="CRM.capGroupPick(this)"/></label>'
+      +'<div id="cap_group_chip"></div>'
+      /* ① who you're meeting */
+      +capStage('1','Who you’re meeting','the handshake — name, company, where they’re from')
+      +'<div class="grid2">'
+        +'<div class="fg"><label class="form-label">Company <span class="req">*</span></label><input class="form-input" id="cap_company" autocomplete="off" placeholder="e.g. Nordfrucht GmbH" oninput="CRM.capUnmark(this)"/></div>'
+        +'<div class="fg"><label class="form-label">Country</label><input class="form-input" id="cap_country" list="cap_countries" autocomplete="off" oninput="CRM.capUnmark(this)"/></div>'
+      +'</div>'
+      +'<div class="grid2">'+capFld('contact','Contact name','')+capFld('role','Role','Head of Procurement')+'</div>'
+      +'<div class="grid2">'
+        +'<div class="fg"><label class="form-label">Importer type <span class="lmuted">· all that apply</span></label><div class="capchips" id="cap_imp">'+capTypeChipsHtml('imp')+'</div></div>'
+        +'<div class="fg"><label class="form-label">Exporter type <span class="lmuted">· all that apply</span></label><div class="capchips" id="cap_exp">'+capTypeChipsHtml('exp')+'</div></div>'
+      +'</div>'
+      /* ② how to reach them */
+      +capStage('2','How to reach them','lock the contact in while they’re in front of you')
       +'<div class="grid2">'+capFld('email','Email','name@company.com','email')+capFld('phone','Phone','','tel')+'</div>'
+      +'<div class="grid2">'+capFld('website','Website','www.company.com')
+        +'<div class="fg"><label class="form-label">Address</label><input class="form-input" id="cap_address" autocomplete="off" placeholder="street, city, country" oninput="CRM.capUnmark(this)"/></div></div>'
+      /* ③ their business */
+      +capStage('3','Their business','context — what they trade &amp; where')
+      +'<div class="fg"><label class="form-label">Products / industries they deal in</label><input class="form-input" id="cap_products_industries" autocomplete="off" placeholder="what they trade" oninput="CRM.capUnmark(this)"/></div>'
+      +'<div class="fg"><label class="form-label">Countries of export / import</label><input class="form-input" id="cap_trade_countries" autocomplete="off" placeholder="e.g. UK, Germany, UAE" oninput="CRM.capUnmark(this)"/></div>'
+      /* ④ what they're after */
+      +capStage('4','What they’re after','the hook — what they want from Daltex')
       +'<div class="fg"><label class="form-label">Products of interest</label><div class="capchips" id="cap_prodchips">'+capProdChipsHtml()+'</div>'
         +'<input class="form-input" id="cap_products_other" autocomplete="off" placeholder="Other — which products?" style="display:none;margin-top:6px"/></div>'
-      +'<button type="button" class="cap-more-btn" id="cap_morebtn" onclick="CRM.capMore()">▾ More details <span class="cell-sub" style="text-transform:none;letter-spacing:0">type · industries · trade countries · quantity · address</span></button>'
-      +'<div id="cap_more" style="display:none">'
-        +'<div class="grid2"><div class="fg"><label class="form-label">Exporter type</label><div class="capchips" id="cap_exp">'+capTypeChipsHtml('exp')+'</div></div>'
-        +'<div class="fg"><label class="form-label">Importer type</label><div class="capchips" id="cap_imp">'+capTypeChipsHtml('imp')+'</div></div></div>'
-        +'<div class="grid2">'+capFld('role','Role','Head of Procurement')+capFld('website','Website','www.company.com')+'</div>'
-        +'<div class="grid2"><div class="fg"><label class="form-label">Country</label><input class="form-input" id="cap_country" list="cap_countries" autocomplete="off"/></div>'
-        +capFld('annual_quantity','Annual quantity','e.g. 300 cont. / season')+'</div>'
-        +'<div class="fg"><label class="form-label">Products / industries they deal in</label><input class="form-input" id="cap_products_industries" autocomplete="off" placeholder="what they trade"/></div>'
-        +'<div class="fg"><label class="form-label">Countries of export / import</label><input class="form-input" id="cap_trade_countries" autocomplete="off" placeholder="e.g. UK, Germany, UAE"/></div>'
-        +'<div class="fg"><label class="form-label">Address</label><input class="form-input" id="cap_address" autocomplete="off" placeholder="street, city, country"/></div>'
-      +'</div>'
-      +'<div class="fg"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label class="form-label" style="margin:0">Notes from the stand <span style="color:var(--red)">· most valuable, shortest-lived</span></label>'
+      +capFld('annual_quantity','Annual quantity','e.g. 300 cont. / season')
+      /* ⑤ notes */
+      +capStage('5','Notes from the stand','most valuable, shortest-lived — jot it now')
+      +'<div class="fg"><label class="form-label">Lead signal <span class="lmuted">· saved as a tag</span></label><div class="capchips" id="cap_signals">'+capSignalHtml()+'</div></div>'
+      +'<div class="fg"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label class="form-label" style="margin:0">Notes</label>'
         +'<button type="button" class="cap-bt" id="cap_bt"'+(CAP.bullets?' data-on="1"':'')+' onclick="CRM.capBulletsToggle()">• Bullets</button>'
         +'<button type="button" class="cap-bt" style="margin-left:auto" onclick="CRM.capNotesExpand()">⤢ Expand</button></div>'
-        +'<div class="capchips" style="margin:6px 0">'+capTagsHtml()+'</div>'
-        +'<textarea class="form-input" id="cap_notes" rows="4" placeholder="Tap a chip above or type — buys 40 cont. from Peru, wants wk 8–14…" oninput="CRM.capNotesMirror(\'inline\')" onkeydown="CRM.capNotesKey(event)"></textarea>'
-        +'<div class="hint" style="margin-top:4px">Tip: tap <b>⤢ Expand</b> for a full-screen pad, or use your phone keyboard mic to dictate while you talk.</div></div>'
-      +'<div class="fg"><label class="form-label">Follow-up actions <span class="cell-sub" style="text-transform:none;letter-spacing:0">what we owe this lead</span></label><div class="capchips" id="cap_followups">'+capFollowupsHtml()+'</div></div>'
-      +'<div class="gset" style="align-items:center"><button class="btn btn-primary" onclick="CRM.capSave()">Save &amp; capture next</button><button class="btn btn-secondary" onclick="CRM.capClear()">Clear</button><span id="cap_tally" style="margin-left:auto">'+capTallyHtml()+'</span></div>'
-      +'<div class="hint" style="margin-top:8px">Scan a digital card’s QR, snap a paper card (OCR), or type it — then <b>Save</b>. Everything saves on the device instantly and syncs when online, so dead stand wifi never loses a card.</div>'
+        +'<textarea class="form-input" id="cap_notes" rows="4" placeholder="buys 40 cont. from Peru, wants wk 8–14…" oninput="CRM.capNotesMirror(\'inline\')" onkeydown="CRM.capNotesKey(event)"></textarea>'
+        +'<div class="hint" style="margin-top:4px">Tip: tap <b>⤢ Expand</b> for a full-screen pad, or use your keyboard mic to dictate.</div></div>'
+      /* ⑥ follow-up */
+      +capStage('6','Follow-up actions','what we owe this lead')
+      +'<div class="fg"><div class="capchips" id="cap_followups">'+capFollowupsHtml()+'</div></div>'
+      +'<div class="gset cap-actions" style="align-items:center"><button class="btn btn-primary" onclick="CRM.capSave()">Save &amp; capture next</button><button class="btn btn-secondary" onclick="CRM.capClear()">Clear</button><span id="cap_tally" style="margin-left:auto">'+capTallyHtml()+'</span></div>'
       +'</div>';
     var list='<div class="card">'
       +'<div class="section-title"><span class="section-title-bar"></span> Captured this session <span class="link-btn" style="margin-left:auto" onclick="CRM.capExport()">Export CSV ↓</span></div>'
@@ -4054,7 +4083,7 @@ window.CRM = (function(){
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
     capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall, capRemovePhoto:capRemovePhoto,
-    capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup,
+    capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup, capSignal:capSignal, capUnmark:capUnmark,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
     campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campRefresh:campRefresh
   };
@@ -4800,6 +4829,44 @@ function injectCrmCss(){
 .crmv.perm-ro-crm [data-crm-act="invEditClaim"],
 .crmv.perm-ro-crm [data-crm-act="invEditRedirect"],
 .crmv.perm-ro-crm [data-crm-act="cancelRedirect"]{display:none!important}
+
+/* ═══════════ SHOW MODE capture redesign (2026-08) — conversation-ordered, compact, Pewter polish ═══════════ */
+.crmv .cap-head-row{display:flex;align-items:flex-start;gap:9px;margin-bottom:10px}
+.crmv .cap-title{font-family:var(--font-display);font-size:20px;color:var(--text);line-height:1.05}
+.crmv .cap-titlesub{font-size:11px;color:var(--text2);margin-top:1px}
+/* conversation-stage headers */
+.crmv .capstage{display:flex;align-items:center;gap:10px;margin:16px 0 9px}
+.crmv .capstage .num{flex:0 0 auto;width:23px;height:23px;border-radius:7px;background:color-mix(in srgb,var(--accent) 15%,var(--card));color:var(--accent);font-family:var(--font-mono);font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.crmv .capstage .swrap{display:flex;flex-direction:column;gap:1px;min-width:0}
+.crmv .capstage .lbl{font-size:13.5px;font-weight:700;color:var(--text);line-height:1.1}
+.crmv .capstage .cue{font-size:11px;color:var(--text2)}
+.crmv .capstage .bar{flex:1;height:1px;background:var(--border);margin-left:4px}
+.crmv .req{color:var(--accent)}
+.crmv .form-label .lmuted{text-transform:none;letter-spacing:0;font-weight:500;color:var(--text3)}
+/* contrast + readable labels (scoped to the leads/capture portal so claims/shipments forms are untouched) */
+.crmv .lead-portal .form-label{color:var(--text2);text-transform:none;letter-spacing:0;font-size:11px;font-weight:600}
+.crmv .caps{color:var(--text2)}
+/* selected chip state = VIOLET (was green, a Vision leftover); green now reads only as "synced" */
+.crmv .capchip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.crmv .cap-bt[data-on="1"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.crmv .capbtn:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+/* comfortable tap targets (density comes from rhythm, not shrinking the target) */
+.crmv .capchip{min-height:32px;padding:6px 12px}
+.crmv .capchip.sm{min-height:30px;padding:5px 11px}
+/* compact capture row: two tools side-by-side, shorter buttons; group photo single-line */
+.crmv .capgrid{grid-template-columns:repeat(2,1fr);gap:7px}
+.crmv .capbtn{min-height:auto;padding:8px 10px;gap:1px}
+.crmv .capbtn.cap-group{flex-direction:row;align-items:center;gap:8px;padding:7px 11px}
+.crmv .capbtn.cap-group .caps{margin-left:auto;text-align:right;font-size:9.5px}
+/* verify-me cue: scan/OCR-filled fields carry an accent bar until edited */
+.crmv .form-input.scanned{border-left:3px solid var(--accent)}
+/* lead-signal dots in the session list */
+.crmv .cap-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+.crmv .cap-dot.hot{background:var(--red)}
+.crmv .cap-dot.warm{background:var(--amber)}
+/* sticky Save bar inside the capture card */
+.crmv .cap-actions{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border);margin:14px -16px -14px;padding:11px 16px calc(11px + env(safe-area-inset-bottom));z-index:5}
+@media(max-width:767px){ .crmv .cap-head-row .cap-title{font-size:19px} }
 `;
   document.head.appendChild(st);
 }
