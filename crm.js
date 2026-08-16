@@ -2949,7 +2949,7 @@ window.CRM = (function(){
   }
 
   /* ═══════════════════ SHOW MODE — real capture (offline-safe, writes crm_leads) ═══════════════════ */
-  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporters:{},importers:{},signals:{},scanned:{},bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null};
+  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporters:{},importers:{},signals:{},scanned:{},bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null,editingId:null};
   var CAP_PRODUCTS=['Potatoes','Citrus','Grapes','Onions','Spring Onions','Pomegranate','Field Crops','Mango','Carrots','Sweet Potato','Pumpkin','Peanuts','Other'];
   var CAP_EXP=['Grower','Trader','Association','Other'];
   var CAP_IMP=['Agent','Retailer','Wholesaler','Other'];
@@ -2960,6 +2960,17 @@ window.CRM = (function(){
   function capDB(){ return new Promise(function(res,rej){ var r=indexedDB.open('dalos_capture',1); r.onupgradeneeded=function(e){ var db=e.target.result; if(!db.objectStoreNames.contains('queue')) db.createObjectStore('queue',{keyPath:'client_uuid'}); }; r.onsuccess=function(){res(r.result);}; r.onerror=function(){rej(r.error);}; }); }
   function capPut(rec){ return capDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('queue','readwrite'); tx.objectStore('queue').put(rec); tx.oncomplete=function(){res();}; tx.onerror=function(){rej(tx.error);}; }); }); }
   function capLoadQueue(){ return capDB().then(function(db){ return new Promise(function(res,rej){ var out=[]; var tx=db.transaction('queue','readonly'); var c=tx.objectStore('queue').openCursor(); c.onsuccess=function(e){ var cur=e.target.result; if(cur){ out.push(cur.value); cur.continue(); } else res(out); }; c.onerror=function(){rej(c.error);}; }); }); }
+  function capDelDB(uuid){ return capDB().then(function(db){ return new Promise(function(res,rej){ var tx=db.transaction('queue','readwrite'); tx.objectStore('queue').delete(uuid); tx.oncomplete=function(){res();}; tx.onerror=function(){rej(tx.error);}; }); }); }
+  /* lightweight session-local duplicate check (offline-safe) — company match or same email domain */
+  function capNorm(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+  function capEmailDom(e){ e=String(e||'').toLowerCase(); var i=e.indexOf('@'); return i>=0?e.slice(i+1):''; }
+  function capFindDup(company,email,exceptUuid){
+    var nc=capNorm(company), dom=capEmailDom(email);
+    for(var i=0;i<CAP.items.length;i++){ var r=CAP.items[i]; if(r.client_uuid===exceptUuid) continue;
+      if(nc && capNorm(r.company_name)===nc) return r;
+      if(dom && capEmailDom(r.email)===dom) return r; }
+    return null;
+  }
 
   function capPending(){ return CAP.items.filter(function(r){return !r._synced;}); }
 
@@ -3201,18 +3212,70 @@ window.CRM = (function(){
     var aq=capField('annual_quantity'); if(aq) extra.annual_quantity=aq;
     var fu=CAP_FOLLOWUPS.filter(function(o){ return CAP.followups[o[0]]; }).map(function(o){ return o[0]; });
     if(fu.length) extra.follow_ups=fu;
-    var rec={ client_uuid:capUuid(), campaign_id:CAP.campaignId, source:(capSource||'manual'), status:'captured',
-      company_name:company, contact_name:capField('contact')||null, contact_role:capField('role')||null,
+    var rp=(Object.keys(extra).length?extra:null);
+    var fields={ company_name:company, contact_name:capField('contact')||null, contact_role:capField('role')||null,
       email:capField('email')||null, phone:capField('phone')||null, website:capField('website')||null,
       country:capField('country')||null, address:capField('address')||null,
-      product_interest:(products.length?products:null), notes:capField('notes')||null,
+      product_interest:(products.length?products:null), notes:capField('notes')||null, raw_payload:rp };
+    /* ── EDIT existing capture ── */
+    if(CAP.editingId){
+      var ex=null; for(var i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===CAP.editingId){ ex=CAP.items[i]; break; } }
+      if(ex){
+        for(var k in fields){ ex[k]=fields[k]; }
+        if(CAP.cardData) ex._card_data=CAP.cardData; if(CAP.groupData) ex._group_data=CAP.groupData;
+        var wasSynced=ex._synced, uuid=ex.client_uuid;
+        capPut(ex).then(function(){
+          if(wasSynced && SB){ SB.from('crm_leads').update(fields).eq('client_uuid',uuid).then(function(res){ if(res&&res.error) toast('Saved on device; cloud update failed — '+esc(res.error.message||'')); }); }
+          CAP.editingId=null; toast('Updated <b>'+esc(company)+'</b>'); capClear(); render();
+        }).catch(function(){ toast('Could not update on the device.'); });
+        return;
+      }
+      CAP.editingId=null;   /* record vanished — fall through to a fresh capture */
+    }
+    /* ── NEW capture ── */
+    var dup=capFindDup(company, fields.email, null);
+    var rec={ client_uuid:capUuid(), campaign_id:CAP.campaignId, source:(capSource||'manual'), status:'captured',
       captured_at:new Date().toISOString(), _synced:false };
-    if(Object.keys(extra).length) rec.raw_payload=extra;
+    for(var k2 in fields){ rec[k2]=fields[k2]; }
     if(CAP.cardData) rec._card_data=CAP.cardData;   /* card/badge photo → uploaded to storage on sync */
     if(CAP.groupData) rec._group_data=CAP.groupData; /* group photo with the lead → uploaded to storage on sync */
-    capPut(rec).then(function(){ CAP.items.unshift(rec); toast('Captured <b>'+esc(company)+'</b> — '+(CAP.online?'syncing…':'queued offline')); capClear(); capSync(); capRenderList(); capRenderHead(); var c=$('cap_company'); if(c) c.focus(); }).catch(function(){ toast('Could not save capture on the device.'); });
+    capPut(rec).then(function(){ CAP.items.unshift(rec);
+      toast('Captured <b>'+esc(company)+'</b> — '+(CAP.online?'syncing…':'queued offline')+(dup?' · <b>possible duplicate</b> of '+esc(dup.company_name||'a earlier capture'):''));
+      capClear(); capSync(); capRenderList(); capRenderHead(); var c=$('cap_company'); if(c) c.focus(); }).catch(function(){ toast('Could not save capture on the device.'); });
   }
-  function capClear(){ capSource='manual'; CAP.chips={}; CAP.exporters={}; CAP.importers={}; CAP.signals={}; CAP.scanned={}; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; capRenderGroupChip();
+  function capEditLoad(uuid){
+    var r=null; for(var i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; break; } }
+    if(!r) return; var rp=r.raw_payload||{};
+    CAP.editingId=uuid; capSource=r.source||'manual';
+    CAP.chips={}; (r.product_interest||[]).forEach(function(p){ CAP.chips[p]=true; });
+    CAP.exporters={}; (rp.exporter_type?String(rp.exporter_type).split(/,\s*/):[]).forEach(function(v){ if(v) CAP.exporters[v]=true; });
+    CAP.importers={}; (rp.importer_type?String(rp.importer_type).split(/,\s*/):[]).forEach(function(v){ if(v) CAP.importers[v]=true; });
+    CAP.signals={}; (rp.tags||[]).forEach(function(t){ CAP.signals[t]=true; });
+    CAP.followups={}; (rp.follow_ups||[]).forEach(function(k){ CAP.followups[k]=true; });
+    CAP.scanned={}; CAP.cardData=r._card_data||null; CAP.groupData=r._group_data||null;
+    closeDlv(); render();   /* rebuild the form with chips reflecting CAP state + button = "Update lead" */
+    var set=function(id,v){ var el=$('cap_'+id); if(el) el.value=v||''; };
+    set('company',r.company_name); set('contact',r.contact_name); set('role',r.contact_role);
+    set('email',r.email); set('phone',r.phone); set('website',r.website); set('country',r.country); set('address',r.address);
+    set('products_industries',rp.products_industries); set('trade_countries',rp.trade_countries); set('annual_quantity',rp.annual_quantity); set('notes',r.notes);
+    if(rp.products_other && CAP.chips['Other']){ var o=$('cap_products_other'); if(o){ o.style.display='block'; o.value=rp.products_other; } }
+    capRenderPhotoChip(); capRenderGroupChip();
+    var w=$('viewContent'); if(w&&w.scrollTo) w.scrollTo(0,0); if(window.scrollTo) window.scrollTo(0,0);
+    toast('Editing <b>'+esc(r.company_name||'lead')+'</b> — change fields, then <b>Update</b>.');
+  }
+  function capCancelEdit(){ CAP.editingId=null; capClear(); render(); }
+  function capDelete(uuid){
+    var r=null; for(var i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; break; } }
+    if(!r) return;
+    if(typeof confirm==='function' && !confirm('Delete this capture'+(r.company_name?' ('+r.company_name+')':'')+' from this device?')) return;
+    capDelDB(uuid).then(function(){
+      CAP.items=CAP.items.filter(function(x){ return x.client_uuid!==uuid; });
+      if(CAP.editingId===uuid) CAP.editingId=null;
+      closeDlv(); capRenderList(); capRenderHead();
+      toast(r._synced ? 'Removed from this device. It already synced to the lead store — remove it from <b>Leads</b> if it was a mistake.' : 'Capture deleted.');
+    }).catch(function(){ toast('Could not delete on the device.'); });
+  }
+  function capClear(){ capSource='manual'; CAP.editingId=null; CAP.chips={}; CAP.exporters={}; CAP.importers={}; CAP.signals={}; CAP.scanned={}; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; capRenderGroupChip();
     ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
     var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
     var o=$('cap_products_other'); if(o) o.style.display='none'; capRenderPhotoChip(); }
@@ -3311,6 +3374,7 @@ window.CRM = (function(){
       +row('Annual quantity', rp.annual_quantity)
       +row('Follow-up actions', fu)
       +row('Notes', r.notes)
+      +'<div class="l-formact" style="margin-top:14px"><button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button><button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
       +'</div>';
     showDlv('Captured lead', body);
     /* synced-but-not-local (e.g. reopened later): fetch a signed URL for the stored photo */
@@ -3463,7 +3527,7 @@ window.CRM = (function(){
       /* ⑥ follow-up */
       +capStage('6','Follow-up actions','what we owe this lead')
       +'<div class="fg"><div class="capchips" id="cap_followups">'+capFollowupsHtml()+'</div></div>'
-      +'<div class="gset cap-actions" style="align-items:center"><button class="btn btn-primary" onclick="CRM.capSave()">Save &amp; capture next</button><button class="btn btn-secondary" onclick="CRM.capClear()">Clear</button><span id="cap_tally" style="margin-left:auto">'+capTallyHtml()+'</span></div>'
+      +'<div class="gset cap-actions" style="align-items:center"><button class="btn btn-primary" id="cap_savebtn" onclick="CRM.capSave()">'+(CAP.editingId?'Update lead':'Save &amp; capture next')+'</button><button class="btn btn-secondary" onclick="'+(CAP.editingId?'CRM.capCancelEdit()':'CRM.capClear()')+'">'+(CAP.editingId?'Cancel edit':'Clear')+'</button><span id="cap_tally" style="margin-left:auto">'+capTallyHtml()+'</span></div>'
       +'</div>';
     var list='<div class="card">'
       +'<div class="section-title"><span class="section-title-bar"></span> Captured this session <span class="link-btn" style="margin-left:auto" onclick="CRM.capExport()">Export CSV ↓</span></div>'
@@ -4083,7 +4147,7 @@ window.CRM = (function(){
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
     capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall, capRemovePhoto:capRemovePhoto,
-    capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup, capSignal:capSignal, capUnmark:capUnmark,
+    capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup, capSignal:capSignal, capUnmark:capUnmark, capEditLoad:capEditLoad, capDelete:capDelete, capCancelEdit:capCancelEdit,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
     campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campRefresh:campRefresh
   };
