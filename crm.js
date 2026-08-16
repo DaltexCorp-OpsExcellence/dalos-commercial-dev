@@ -3486,13 +3486,13 @@ window.CRM = (function(){
     var camp=(function(){ for(var j=0;j<(CAP.campaigns||[]).length;j++){ if(CAP.campaigns[j].id===CAP.campaignId) return CAP.campaigns[j].name; } return ''; })();
     if(!rows.length) return '<div class="hint" style="margin-bottom:8px">Everyone’s captures for '+(camp?'<b>'+esc(camp)+'</b>':'this campaign')+' — the whole team’s, refreshing as they sync. Tap a row for details.</div><div class="empty-state">No captures yet. Fill the form and tap <b>Save &amp; capture next</b>.</div>';
     return '<div class="hint" style="margin-bottom:8px">Everyone’s captures for '+(camp?'<b>'+esc(camp)+'</b>':'this campaign')+' — <b>'+rows.length+'</b> so far, the whole team’s. Tap a row for details.</div>'
-      +'<div class="table-wrap"><table><thead><tr><th>Time</th><th>Company</th><th>By</th><th>Contact</th><th class="right"></th></tr></thead><tbody>'
+      +'<div class="table-wrap"><table><thead><tr><th>Time</th><th>Company</th><th>By</th><th>Contact</th><th class="right">Sync</th></tr></thead><tbody>'
       +rows.slice(0,500).map(function(r){
         var t=r.captured_at?r.captured_at.slice(11,16):'';
         var deviceLocal=!r.captured_by;   /* local IndexedDB rows carry no captured_by — they're this rep's own */
         var mine=(myId && r.captured_by===myId) || deviceLocal;
         var pending=deviceLocal && !r._synced;
-        var sync=pending?'<span class="badge badge-warn" title="on this device, pending sync">…</span>':'<span class="badge badge-pass" title="in the lead store">✓</span>';
+        var sync=pending?'<span class="badge badge-warn" title="On this device — not uploaded yet">… On device</span>':'<span class="badge badge-pass" title="Saved to the shared lead store">✓ Synced</span>';
         var tags=(r.raw_payload&&r.raw_payload.tags)||[];
         var dot=tags.indexOf('🔥 Hot lead')>=0?'<span class="cap-dot hot" title="Hot lead"></span>':(tags.length?'<span class="cap-dot warm" title="'+esc(tags.join(', '))+'"></span>':'');
         var by=mine?'<span class="cap-you">You</span>':esc(r.captured_by_name||'—');
