@@ -2506,6 +2506,18 @@ window.CRM = (function(){
   function lmRoutingOf(slug){ return regionRouting[slug]==='assign'?'assign':'claim'; }
   function lmIsManagerOf(region){ return IS_ADMIN || !!(region && LM.myManagerRegions && LM.myManagerRegions[region]); }
   function lmInitials(name){ var p=String(name||'').trim().split(/\s+/); if(!p[0]) return '?'; return ((p[0][0]||'')+(p.length>1?(p[p.length-1][0]||''):'')).toUpperCase(); }
+  /* Region scope for the Leads page. Commercial (incl. regional managers) see ONLY leads routed to
+     region(s) they belong to; marketing (editCRM:0) and admins see all. canEditCRM() distinguishes
+     commercial from marketing without a role field. Presentational only — crm_leads_list already
+     returns everything; server-side RLS region scoping is a Phase-2 item. */
+  function lmRegionScoped(){ return !IS_ADMIN && canEditCRM(); }
+  function lmScope(rows){
+    if(!lmRegionScoped()) return rows;
+    var m=LM.myRegions||{};
+    return rows.filter(function(l){ return l.assignedRegion && m[l.assignedRegion]; });
+  }
+  /* region-filter options, narrowed to the user's own regions when scoped */
+  function lmScopedRegions(){ if(!lmRegionScoped()) return lmRealRegions(); var m=LM.myRegions||{}; return lmRealRegions().filter(function(r){ return m[r[0]]; }); }
   var LM_SOURCES=[['manual','Manual'],['qr_vcard','QR / vCard'],['ocr_card','Card OCR'],['public_form','Public form'],['csv_import','CSV import']];
   function lmSourceLabel(s){ for(var i=0;i<LM_SOURCES.length;i++) if(LM_SOURCES[i][0]===s) return LM_SOURCES[i][1]; return s||'—'; }
   function lmAge(ts){ if(!ts) return '—'; var d=Math.floor((Date.now()-new Date(ts).getTime())/86400000); if(d<=0) return 'today'; if(d===1) return '1d'; if(d<30) return d+'d'; return Math.floor(d/30)+'mo'; }
@@ -2808,10 +2820,11 @@ window.CRM = (function(){
     /* Segment tabs: All leads · Needs enrichment · Returned. Capture (Show Mode) is its own
        sidebar item, so it carries NO segment bar. */
     if(LSUB.leads!=='cap'){
-      var allN=LM.loaded?LM.rows.filter(function(l){return !lmIsReturned(l);}).length:'';
-      var enrN=LM.loaded?LM.rows.filter(lmIsCaptured).length:'';
-      var rejN=LM.loaded?LM.rows.filter(lmIsReturned).length:'';
-      bar=lsegBar('leads',[['ws','All leads',allN,'badge-n'],['enr','Needs enrichment',enrN,'badge-warn'],['rej','Returned',rejN,'badge-fail']]);
+      var sc=LM.loaded?lmScope(LM.rows):[];
+      var allN=LM.loaded?sc.filter(function(l){return !lmIsReturned(l);}).length:'';
+      var enrN=LM.loaded?sc.filter(lmIsCaptured).length:'';
+      var rejN=LM.loaded?sc.filter(lmIsReturned).length:'';
+      bar=lsegBar('leads',[['ws',lmRegionScoped()?'My region':'All leads',allN,'badge-n'],['enr','Needs enrichment',enrN,'badge-warn'],['rej','Returned',rejN,'badge-fail']]);
     }
     /* All Leads views (Workspace/Enrichment/Returned/Capture) are REAL now — no dummy draft/live chrome. */
     vc.innerHTML='<div class="lead-portal">'+bar+pane+'</div>';
@@ -2819,12 +2832,13 @@ window.CRM = (function(){
 
   function paneWorkspace(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
-    var all=LM.rows.filter(function(l){return !lmIsReturned(l);});
-    var enrN=LM.rows.filter(lmIsCaptured).length;
-    var qualN=LM.rows.filter(lmIsQualified).length;
-    var asgN=LM.rows.filter(lmIsAssigned).length;
+    var base=lmScope(LM.rows);
+    var all=base.filter(function(l){return !lmIsReturned(l);});
+    var enrN=base.filter(lmIsCaptured).length;
+    var qualN=base.filter(lmIsQualified).length;
+    var asgN=base.filter(lmIsAssigned).length;
     var kpis=
-      kcard('Leads captured',String(LM.rows.length),'all capture sources')+
+      kcard('Leads captured',String(base.length),'all capture sources')+
       kcard('In enrichment',String(enrN),'stage 0 · needs fields')+
       kcard('Qualified',String(qualN),'ready to assign')+
       kcard('Assigned',String(asgN),'to a region');
@@ -2843,7 +2857,7 @@ window.CRM = (function(){
     }
     var filters='<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px">'
       +fsel('source','All sources',LM_SOURCES)
-      +fsel('region','All regions',lmRealRegions())
+      +fsel('region','All regions',lmScopedRegions())
       +fsel('stage','All stages',[['0','Captured'],['1','Qualified'],['2','Assigned']])
       +'<input class="form-input" id="lm_q" value="'+esc(LM.q)+'" style="width:auto;flex:1;min-width:150px" placeholder="Search company, contact, email, country…" oninput="CRM.lmSearch(this.value)"/></div>';
     var rows=list.map(function(l){
@@ -2859,7 +2873,7 @@ window.CRM = (function(){
     }).join('');
     if(!list.length) rows='<tr><td colspan="9" class="cell-sub" style="padding:16px;text-align:center">No leads match. Captures from Show Mode and the public form land here.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
-      +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> All leads · '+list.length
+      +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> '+(lmRegionScoped()?'Leads in your region(s)':'All leads')+' · '+list.length
       +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.leadImport()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.leadQuickAdd()">+ New lead</button></span></div>'
       +filters
       +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
@@ -2892,7 +2906,7 @@ window.CRM = (function(){
 
   function paneEnrichment(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
-    var list=LM.rows.filter(lmIsCaptured);
+    var list=lmScope(LM.rows).filter(lmIsCaptured);
     var rows=list.map(function(l){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'</td><td>'+esc(l.country)+'</td>'
         +'<td>'+bdg('badge-n',lmSourceLabel(l.source))+'</td>'
@@ -2911,7 +2925,7 @@ window.CRM = (function(){
      classification, reason codes and Class-A analytics are DEFERRED to the Phase-2 returned-lead rules. */
   function paneReturned(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
-    var list=LM.rows.filter(function(l){return l.disposition==='returned';});
+    var list=lmScope(LM.rows).filter(function(l){return l.disposition==='returned';});
     var rows=list.map(function(l){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')">'
         +'<td><span class="lot">'+esc(l.ref)+'</span></td>'
