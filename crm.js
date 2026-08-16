@@ -2528,6 +2528,7 @@ window.CRM = (function(){
       product:(r.product_interest&&r.product_interest.length?r.product_interest.join(', '):'—'), products:r.product_interest||[],
       source:r.source||'', status:r.status||'', stage:r.stage||0, disposition:r.disposition||null,
       assignedRegion:r.assigned_region||'', assignedTo:r.assigned_to||null, assignedToName:r.assigned_to_name||'', assignedBy:r.assigned_by||null, assignedByName:r.assigned_by_name||'', assignedAt:r.assigned_at||null,
+      qualifiedAt:r.qualified_at||null,
       returnReason:r.return_reason||'', returnedAt:r.returned_at||null, returnedBy:r.returned_by||null,
       thread:(r.handoff_log&&r.handoff_log.length?r.handoff_log:[]),
       contact:r.contact_name||'', role:r.contact_role||'', email:r.email||'', phone:r.phone||'',
@@ -2545,8 +2546,8 @@ window.CRM = (function(){
       var res=r[1]; LM.loading=false; LM.loaded=true;
       if(res&&res.error) toast('<b>Could not load leads.</b> '+esc(res.error.message||''));
       else LM.rows=((res&&res.data)||[]).map(lmMap);
-      if(currentTab==='leads'||currentTab==='inbox') render();
-    }).catch(function(){ LM.loading=false; LM.loaded=true; if(currentTab==='leads'||currentTab==='inbox') render(); });
+      if(currentTab==='leads'||currentTab==='inbox'||currentTab==='funnel') render();
+    }).catch(function(){ LM.loading=false; LM.loaded=true; if(currentTab==='leads'||currentTab==='inbox'||currentTab==='funnel') render(); });
   }
   function lmEnsure(){ if(!LM.loaded && !LM.loading) lmLoad(); }
   function lmReload(){ LM.loaded=false; LM.loading=false; lmLoad(); }
@@ -3552,46 +3553,80 @@ window.CRM = (function(){
   /* ═══════════════════ FUNNEL destination ═══════════════════ */
   function renderLeadFunnel(){
     var vc=$('viewContent'); if(!vc) return;
-    /* Board / Metrics toggle (Conversion is labelled "Metrics" here). */
+    /* Board / Metrics toggle (Conversion is labelled "Metrics" here). REAL data (crm_leads). */
     var bar=lsegBar('funnel',[['board','Board','',''],['conv','Metrics','','']]);
-    vc.innerHTML='<div class="lead-portal">'+bar+draftBanner()+(LSUB.funnel==='conv'?paneConversion():paneBoard())+'</div>';
+    vc.innerHTML='<div class="lead-portal">'+bar+(LSUB.funnel==='conv'?paneConversion():paneBoard())+'</div>';
   }
   var STRIPE={Grapes:'#7a4ea8',Mango:'#c06030',Citrus:'#b0304a',Pomegranate:'#b0304a'};
+  function lmStripe(l){ var p=(l.products&&l.products[0])||l.product||''; return STRIPE[p]||'#2b5c3f'; }
+  /* The real lead funnel — current-state columns derived from the one source of truth
+     (captured → qualified → assigned-to-region → owned) plus Returned as a side exit.
+     Deal stages (quoted/shipped/repeat) need deal data we don't capture yet → Phase 2. */
   function paneBoard(){
-    var cols=L_STAGES.map(function(s){
-      var items=LEADS.filter(function(l){return l.stage===s.i&&!l.returnClass;});
-      var cards=items.slice(0,4).map(function(l){
-        var f=[]; if(l.rep) f.push(bdg('badge-pass',l.rep)); if(l.gates&&l.gates.cert==='warn') f.push(bdg('badge-warn','cert 2/5'));
-        if(l.stage===6) f.push(bdg('badge-pass','MN-2026-0311'));
-        return '<div class="lc" onclick="CRM.leadOpen(\''+l.id+'\')"><div class="stripe" style="background:'+(STRIPE[l.product]||'#2b5c3f')+'"></div><div class="lc-t">'+esc(l.company)+'</div><div class="lc-m">'+esc(l.country)+' · '+esc(l.product)+(l.band?' · <span class="mono">'+L_BANDS[l.band]+'</span>':'')+'</div>'+(f.length?'<div class="lc-f">'+f.join('')+'</div>':'')+'</div>';
+    if(!LM.loaded){ lmEnsure(); return lmSkel(); }
+    var COLS=[
+      {label:'Captured',        hint:'awaiting enrichment', test:lmIsCaptured},
+      {label:'Qualified',       hint:'ready to assign',     test:lmIsQualified},
+      {label:'In region inbox', hint:'assigned · unclaimed',test:lmIsUnclaimed},
+      {label:'Owned',           hint:'claimed by a rep',    test:function(l){return lmIsAssigned(l)&&!!l.assignedTo;}},
+      {label:'Returned',        hint:'sent back to marketing',test:lmIsReturned}
+    ];
+    var cols=COLS.map(function(c){
+      var items=LM.rows.filter(c.test);
+      var cards=items.slice(0,8).map(function(l){
+        var f=[];
+        if(l.assignedRegion) f.push(bdg('badge-n',lmRegionName(l.assignedRegion)));
+        if(lmIsAssigned(l)&&l.assignedTo) f.push(bdg('badge-pass',lmIsMine(l)?'You':(l.assignedToName||'owned')));
+        if(lmIsReturned(l)&&l.returnReason) f.push(bdg('badge-fail',l.returnReason));
+        return '<div class="lc" onclick="CRM.lmOpen(\''+l.id+'\')"><div class="stripe" style="background:'+lmStripe(l)+'"></div>'
+          +'<div class="lc-t">'+esc(l.company)+'</div>'
+          +'<div class="lc-m">'+esc(l.product)+' · '+esc(lmSourceLabel(l.source))+'</div>'
+          +(f.length?'<div class="lc-f">'+f.join('')+'</div>':'')+'</div>';
       }).join('');
-      return '<div class="col"><div class="col-h">'+s.i+' · '+esc(s.label)+' <span class="col-n">'+items.length+'</span></div>'+cards+'</div>';
+      var more=items.length>8?'<div class="cell-sub" style="padding:6px 2px">+'+(items.length-8)+' more</div>':'';
+      return '<div class="col"><div class="col-h">'+esc(c.label)+' <span class="col-n">'+items.length+'</span><div class="cell-sub" style="font-weight:400;text-transform:none;letter-spacing:0">'+esc(c.hint)+'</div></div>'+(cards||'<div class="cell-sub" style="padding:8px 2px">—</div>')+more+'</div>';
     }).join('');
-    return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Funnel board · all leads</div>'
-      +'<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">'
-      +'<select class="form-select" style="width:auto"><option>All types</option>'+Object.keys(L_TYPES).map(function(k){return '<option>'+L_TYPES[k]+'</option>';}).join('')+'</select>'
-      +'<select class="form-select" style="width:auto"><option>All markets</option>'+L_REGIONS.map(function(r){return '<option>'+esc(r)+'</option>';}).join('')+'</select></div>'
+    return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Funnel board · '+LM.rows.length+' lead(s)'
+      +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
       +'<div class="kan">'+cols+'</div></div>';
   }
+  function pct(n,d){ return d?Math.round(n/d*100):0; }
   function paneConversion(){
-    var kpis=kcard('Qualified → Accepted','74%','<span class="up">≥70% target</span>')+kcard('Accepted → Quoted','41%','<span class="down">−6 pts vs 2025</span>')+kcard('Quoted → Shipped','28%','<span class="up">+3 pts</span>')+kcard('Median days to ship','138','from registration');
-    var funnel=[['0 Captured',100,'74','100%'],['1 Qualified',82,'61','82%'],['2 Accepted',69,'51','84%'],['3 Engaged',47,'35','69%'],['4 Specs / samples',30,'22','63%'],['5 Quoted',19,'14','64%'],['6 Shipped',7,'5','36%','var(--green)'],['7 Repeat',3,'2','40%','var(--green)']]
-      .map(function(r){return fnRow(r[0],r[1],r[2],r[3],r[4]);}).join('');
-    var byType=[['Event',74,61,51,5,'6.8%','badge-pass'],['Referral',31,28,25,3,'9.7%','badge-pass'],['Inbound',58,44,37,2,'3.4%','badge-warn'],['Outbound sourced',1420,19,9,1,'0.07%','badge-fail'],['Win-back',12,11,10,4,'33.3%','badge-pass']]
-      .map(function(r){return '<tr><td>'+r[0]+'</td><td class="mono">'+r[1]+'</td><td class="mono">'+r[2]+'</td><td class="mono">'+r[3]+'</td><td class="mono">'+r[4]+'</td><td>'+bdg(r[6],r[5])+'</td></tr>';}).join('');
-    var weighted=[['1 Qualified',61,640,'0.08',51],['2 Accepted',51,510,'0.10',51],['3 Engaged',35,390,'0.14',55],['5 Quoted',14,170,'0.17',29]]
-      .map(function(r){return '<tr><td>'+r[0]+'</td><td class="mono">'+r[1]+'</td><td class="mono">'+r[2]+'</td><td class="mono">'+r[3]+'</td><td class="mono">'+r[4]+'</td></tr>';}).join('');
-    var sla=fnRow('Decided ≤ 5 days',76,'39','76%','var(--green)')+fnRow('Decided 6–10 days',16,'8','16%','var(--amber)')+fnRow('Breached / open',8,'4','8%','var(--red)');
+    if(!LM.loaded){ lmEnsure(); return lmSkel(); }
+    var rows=LM.rows;
+    var total=rows.length;
+    /* Cohort funnel from the lifecycle timestamps — a lead that is now Owned was once Captured,
+       so we count "ever reached" via qualified_at / assigned_at / assigned_to, not current state. */
+    var cQual=rows.filter(function(l){return l.qualifiedAt||lmIsQualified(l)||lmIsAssigned(l);}).length;
+    var cAsg =rows.filter(function(l){return l.assignedAt||(lmIsAssigned(l));}).length;
+    var cOwn =rows.filter(function(l){return !!l.assignedTo;}).length;
+    var cRet =rows.filter(lmIsReturned).length;
+    var kpis=
+      kcard('Leads captured',String(total),'all sources')+
+      kcard('Captured → Qualified',pct(cQual,total)+'%',cQual+' of '+total)+
+      kcard('Qualified → Assigned',pct(cAsg,cQual)+'%',cAsg+' assigned to a region')+
+      kcard('Assigned → Owned',pct(cOwn,cAsg)+'%',cOwn+' claimed by a rep');
+    var stages=[['Captured',total,total],['Qualified',cQual,total],['Assigned to region',cAsg,total],['Owned by a rep',cOwn,total]];
+    var prev=[total,total,cQual,cAsg];
+    var funnel=stages.map(function(s,i){ return fnRow(s[0],pct(s[1],total),String(s[1]),pct(s[1],prev[i])+'%',i>=3?'var(--green)':''); }).join('');
+    /* By source — real capture channels */
+    var bySrc={}; rows.forEach(function(l){ var s=l.source||'—'; (bySrc[s]=bySrc[s]||{cap:0,q:0,a:0,o:0}); bySrc[s].cap++; if(l.qualifiedAt||lmIsQualified(l)||lmIsAssigned(l))bySrc[s].q++; if(l.assignedAt||lmIsAssigned(l))bySrc[s].a++; if(l.assignedTo)bySrc[s].o++; });
+    var srcRows=Object.keys(bySrc).sort(function(a,b){return bySrc[b].cap-bySrc[a].cap;}).map(function(s){ var r=bySrc[s]; return '<tr><td>'+esc(lmSourceLabel(s))+'</td><td class="mono">'+r.cap+'</td><td class="mono">'+r.q+'</td><td class="mono">'+r.a+'</td><td class="mono">'+r.o+'</td></tr>'; }).join('')
+      || '<tr><td colspan="5" class="cell-sub" style="padding:12px;text-align:center">No leads yet.</td></tr>';
+    /* By region — only meaningful once assigned to a region */
+    var byReg={}; rows.filter(lmIsAssigned).forEach(function(l){ var k=l.assignedRegion||'—'; (byReg[k]=byReg[k]||{a:0,o:0}); byReg[k].a++; if(l.assignedTo)byReg[k].o++; });
+    var regRows=Object.keys(byReg).sort(function(a,b){return byReg[b].a-byReg[a].a;}).map(function(k){ var r=byReg[k]; return '<tr><td>'+esc(lmRegionName(k))+'</td><td class="mono">'+r.a+'</td><td class="mono">'+r.o+'</td><td class="mono">'+(r.a-r.o)+'</td></tr>'; }).join('')
+      || '<tr><td colspan="4" class="cell-sub" style="padding:12px;text-align:center">Nothing assigned to a region yet.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
       +'<div class="grid2" style="margin-bottom:12px">'
-      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Stage funnel · Event leads · season 2026</div>'+funnel+'<div class="hint">Right column is stage-to-stage conversion, not share of total.</div></div>'
-      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> By lead type — never blended</div>'
-      +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Type</th><th>Cap.</th><th>Qual.</th><th>Acc.</th><th>Shipped</th><th>End-to-end</th></tr></thead><tbody>'+byType+'</tbody></table></div>'
-      +'<div class="alert-warn" style="margin-top:11px">1 420 sourced rows against 74 event contacts. A single blended funnel would read <strong>0.9%</strong> and describe nothing real.</div></div></div>'
-      +'<div class="grid2"><div class="card"><div class="section-title"><span class="section-title-bar"></span> Weighted pipeline · the lag bridge</div>'
-      +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Stage</th><th>Leads</th><th>Est. cont.</th><th>× conv.</th><th>Weighted</th></tr></thead><tbody>'+weighted
-      +'<tr><td colspan="4" style="font-weight:600;color:var(--text)">Weighted pipeline</td><td class="mono" style="font-weight:600;color:var(--text)">186</td></tr></tbody></table></div></div>'
-      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Stage-2 SLA health</div>'+sla+'<div class="alert-fail" style="margin-top:11px">4 leads past SLA — returned to marketing as <strong>no response</strong>. No escalation path in v1.</div></div></div>';
+      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Lead funnel · all leads</div>'+funnel
+      +'<div class="hint">Bars are share of all captured leads; the right figure is stage-to-stage conversion. Based on lifecycle timestamps, so a lead counts toward every stage it has reached.'+(cRet?' · '+cRet+' currently returned to marketing.':'')+'</div></div>'
+      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> By capture source</div>'
+      +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Source</th><th>Captured</th><th>Qualified</th><th>Assigned</th><th>Owned</th></tr></thead><tbody>'+srcRows+'</tbody></table></div></div></div>'
+      +'<div class="grid2"><div class="card"><div class="section-title"><span class="section-title-bar"></span> By region · assigned leads</div>'
+      +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Region</th><th>Assigned</th><th>Owned</th><th>Unclaimed</th></tr></thead><tbody>'+regRows+'</tbody></table></div></div>'
+      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Deal analytics</div>'
+      +'<div class="alert-warn" style="margin-top:2px">Quoted / shipped / repeat, weighted pipeline and days-to-ship need deal-stage data the CRM doesn’t capture yet. These arrive with the Phase-2 deal tracking &amp; SLA rules.</div></div></div>';
   }
 
   /* ═══════════════════ CAMPAIGNS destination (REAL — crm_campaigns) ═══════════════════ */
