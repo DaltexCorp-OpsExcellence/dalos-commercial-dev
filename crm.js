@@ -3676,7 +3676,7 @@ window.CRM = (function(){
         +'<td>'+owner+byline+'</td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'—')+'</td>'
         +'<td>'+esc(l.product)+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td>'
-        +'<td onclick="event.stopPropagation()"><button class="btn btn-primary btn-sm" onclick="CRM.leadWonOpen(\''+l.id+'\')">Mark won</button>'+reassign+'</td></tr>';
+        +'<td onclick="event.stopPropagation()">'+(reassign||'<span class="cell-sub">—</span>')+'</td></tr>';
     }).join('');
     if(!shown.length) rows='<tr><td colspan="8" class="cell-sub" style="padding:16px;text-align:center">'+(mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.')+'</td></tr>';
     /* assignment filter — managers only (a rep only ever sees themselves) */
