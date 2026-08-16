@@ -2979,7 +2979,7 @@ window.CRM = (function(){
     if(!list.length) rows='<tr><td colspan="9" class="cell-sub" style="padding:16px;text-align:center">No leads match. Captures from Show Mode and the public form land here.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
       +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> '+(lmRegionScoped()?'Leads in your region(s)':'All leads')+' · '+list.length
-      +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.leadImport()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.leadQuickAdd()">+ New lead</button></span></div>'
+      +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.leadImport()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.lmNewOpen()">+ New lead</button></span></div>'
       +filters
       +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
   }
@@ -4316,6 +4316,7 @@ window.CRM = (function(){
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
+    lmNewOpen:lmNewOpen, lmNewChip:lmNewChip, lmNewCardPick:lmNewCardPick, lmNewCardRemove:lmNewCardRemove, lmNewSave:gm(lmNewSave), lmNewForce:gm(lmNewForce),
     leadQualifyOpen:leadQualifyOpen, leadGate:leadGate, leadQualifySave:gm(leadQualifySave),
     leadAssignOpen:leadAssignOpen, leadPickRegion:leadPickRegion, leadAssignSave:gm(leadAssignSave),
     leadEscalateOpen:leadEscalateOpen, leadEscalate:gs(leadEscalate),
