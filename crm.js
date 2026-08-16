@@ -2489,7 +2489,7 @@ window.CRM = (function(){
      LEADS array + lead* handlers below still power the DEFERRED views (Lead
      inbox, Funnel, Conversion) — demo-only until the Phase-2 rules land.
      ═══════════════════════════════════════════════════════════════════════ */
-  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all'},myRegions:null,myManagerRegions:null};
+  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all'},myRegions:null,myManagerRegions:null,pipeAsg:'all'};
   /* Leads use the SAME region model as Tracking & Claims: regions (slug id + label) + region_members.
      Assignable regions = real regions from the loaded REGIONS list, excluding 'all' and the bucket. */
   function lmRealRegions(){ return REGIONS.filter(function(r){ return r.id!=='all' && !r.admin; }).map(function(r){ return [r.id,r.label]; }); }
@@ -3375,7 +3375,9 @@ window.CRM = (function(){
     var vc=$('viewContent'); if(!vc) return;
     /* Both real now: Lead inbox = region-assigned & unclaimed; My pipeline = flagged (claimed) to me. */
     var inbN=LM.loaded?inboxList().length:'';
-    var bar=lsegBar('inbox',[['inbox','Inbox',inbN,'badge-fail'],['pip','My pipeline','','']]);
+    var pipLabel=lmIsPipelineManager()?'Team pipeline':'My pipeline';
+    var pipN=LM.loaded?pipelineList().length:'';
+    var bar=lsegBar('inbox',[['inbox','Inbox',inbN,'badge-fail'],['pip',pipLabel,pipN,'badge-n']]);
     vc.innerHTML='<div class="lead-portal">'+bar+(LSUB.inbox==='pip'?panePipeline():paneInbox())+'</div>';
   }
   /* Lead inbox = leads at the Assigned stage (region set) with no owner flag yet.
@@ -3424,20 +3426,55 @@ window.CRM = (function(){
       +'<div class="alert-warn" style="margin-bottom:12px">Leads assigned to your region, waiting for an owner. In <strong>Claim</strong> regions a rep takes ownership from here; in <strong>Assign</strong> regions a manager assigns each lead to a member. Routing is set per region under Setup → Region rules.</div>'
       +(list.length?cards:'<div class="empty-state">'+emptyMsg+'</div>')+'</div>';
   }
+  /* True when the user manages ≥1 region (admins always). Managers get the team pipeline. */
+  function lmIsPipelineManager(){ return IS_ADMIN || !!(LM.myManagerRegions && Object.keys(LM.myManagerRegions).length); }
+  /* Pipeline set: a rep sees only their own owned leads; a manager also sees every OWNED lead in
+     the region(s) they manage (their team). De-duped by id (a manager's own lead in a managed
+     region would otherwise appear twice). Returned leads are excluded. */
+  function pipelineList(){
+    var mgr=lmIsPipelineManager(), byId={};
+    LM.rows.forEach(function(l){
+      if(lmIsReturned(l)) return;
+      if(lmIsMine(l) || (mgr && l.assignedTo && lmIsManagerOf(l.assignedRegion))) byId[l.id]=l;
+    });
+    return Object.keys(byId).map(function(k){ return byId[k]; });
+  }
+  function lmSetPipeAsg(v){ LM.pipeAsg=v; render(); }
   function panePipeline(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
-    var mine=LM.rows.filter(lmIsMine);
-    var rows=mine.map(function(l){
+    var mgr=lmIsPipelineManager(), uid=(USER&&USER.id)||null;
+    var full=pipelineList();
+    /* distinct assignees present → drives the "filter by assignment" dropdown */
+    var asg={}; full.forEach(function(l){ if(l.assignedTo) asg[l.assignedTo]=l.assignedToName||'—'; });
+    var fil=LM.pipeAsg||'all';
+    var shown=full.filter(function(l){
+      if(fil==='all') return true;
+      if(fil==='me') return !!(uid && l.assignedTo===uid);
+      return l.assignedTo===fil;
+    });
+    var rows=shown.map(function(l){
+      var mineRow=(uid && l.assignedTo===uid);
+      var owner=mineRow?'<b>You</b>':(l.assignedToName?esc(l.assignedToName):'<span class="cell-sub">—</span>');
+      var byline=l.assignedByName?'<div class="cell-sub">assigned by '+esc(l.assignedByName)+'</div>':'';
       var reassign=lmIsManagerOf(l.assignedRegion)?'<button class="btn btn-secondary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>':'';
-      return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'<div class="cell-sub">Owned by '+(l.assignedToName?esc(l.assignedToName):'you')+(l.assignedByName?' · assigned by '+esc(l.assignedByName):'')+'</div></td>'
+      return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'</td>'
+        +'<td>'+owner+byline+'</td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'—')+'</td>'
         +'<td>'+esc(l.product)+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td>'
         +'<td onclick="event.stopPropagation()"><button class="btn btn-primary btn-sm" onclick="CRM.leadWonOpen(\''+l.id+'\')">Mark won</button>'+reassign+'</td></tr>';
     }).join('');
-    if(!mine.length) rows='<tr><td colspan="7" class="cell-sub" style="padding:16px;text-align:center">Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.</td></tr>';
-    return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> My pipeline · '+mine.length+' lead(s) assigned to me'
-      +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Region</th><th>Product</th><th>Stage</th><th>Assigned</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+    if(!shown.length) rows='<tr><td colspan="8" class="cell-sub" style="padding:16px;text-align:center">'+(mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.')+'</td></tr>';
+    /* assignment filter — managers only (a rep only ever sees themselves) */
+    var asgKeys=Object.keys(asg);
+    var filterSel=mgr?'<select class="form-select" style="width:auto" onchange="CRM.lmSetPipeAsg(this.value)">'
+        +'<option value="all"'+(fil==='all'?' selected':'')+'>All assignees</option>'
+        +'<option value="me"'+(fil==='me'?' selected':'')+'>Me</option>'
+        +asgKeys.map(function(k){ return '<option value="'+esc(k)+'"'+(fil===k?' selected':'')+'>'+esc(asg[k])+(uid&&k===uid?' (you)':'')+'</option>'; }).join('')
+        +'</select>':'';
+    var title=mgr?('Team pipeline · '+shown.length+(fil==='all'?'':' of '+full.length)+' lead(s)'):('My pipeline · '+shown.length+' lead(s) assigned to me');
+    return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> '+title
+      +' <span style="margin-left:auto;display:inline-flex;gap:6px;align-items:center">'+filterSel+'<button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
+      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Assigned to</th><th>Region</th><th>Product</th><th>Stage</th><th>Assigned</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
   }
 
   /* ═══════════════════ FUNNEL destination ═══════════════════ */
@@ -3892,7 +3929,7 @@ window.CRM = (function(){
     lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSearch:lmSearch, lmSetF:lmSetF,
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
