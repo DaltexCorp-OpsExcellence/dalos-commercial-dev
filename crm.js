@@ -3559,74 +3559,75 @@ window.CRM = (function(){
   }
   var STRIPE={Grapes:'#7a4ea8',Mango:'#c06030',Citrus:'#b0304a',Pomegranate:'#b0304a'};
   function lmStripe(l){ var p=(l.products&&l.products[0])||l.product||''; return STRIPE[p]||'#2b5c3f'; }
-  /* The real lead funnel — current-state columns derived from the one source of truth
-     (captured → qualified → assigned-to-region → owned) plus Returned as a side exit.
-     Deal stages (quoted/shipped/repeat) need deal data we don't capture yet → Phase 2. */
+  function pct(n,d){ return d?Math.round(n/d*100):0; }
+  /* Map our real lead steps onto the ORIGINAL 8-stage funnel (L_STAGES).
+     0 Captured · 1 Qualified (incl. assigned-to-region but unclaimed) · 2 Accepted (has an owner:
+     claimed OR assigned to a rep). Stages 3–7 (Engaged→Repeat) are deal stages we don't capture yet.
+     Returned = a side exit (Rejected), not a column. */
+  function lmFunnelStage(l){
+    if(l.assignedTo) return 2;                        // Accepted — claimed or assigned to a rep
+    if(lmIsQualified(l)||lmIsAssigned(l)) return 1;   // Qualified — incl. assigned-to-region, unclaimed
+    return 0;                                         // Captured
+  }
   function paneBoard(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
-    var COLS=[
-      {label:'Captured',        hint:'awaiting enrichment', test:lmIsCaptured},
-      {label:'Qualified',       hint:'ready to assign',     test:lmIsQualified},
-      {label:'In region inbox', hint:'assigned · unclaimed',test:lmIsUnclaimed},
-      {label:'Owned',           hint:'claimed by a rep',    test:function(l){return lmIsAssigned(l)&&!!l.assignedTo;}},
-      {label:'Returned',        hint:'sent back to marketing',test:lmIsReturned}
-    ];
-    var cols=COLS.map(function(c){
-      var items=LM.rows.filter(c.test);
+    var active=LM.rows.filter(function(l){return !lmIsReturned(l);});
+    var retN=LM.rows.length-active.length;
+    var cols=L_STAGES.map(function(s){
+      var items=active.filter(function(l){return lmFunnelStage(l)===s.i;});
       var cards=items.slice(0,8).map(function(l){
         var f=[];
         if(l.assignedRegion) f.push(bdg('badge-n',lmRegionName(l.assignedRegion)));
-        if(lmIsAssigned(l)&&l.assignedTo) f.push(bdg('badge-pass',lmIsMine(l)?'You':(l.assignedToName||'owned')));
-        if(lmIsReturned(l)&&l.returnReason) f.push(bdg('badge-fail',l.returnReason));
+        if(l.assignedTo) f.push(bdg('badge-pass',lmIsMine(l)?'You':(l.assignedToName||'owned')));
         return '<div class="lc" onclick="CRM.lmOpen(\''+l.id+'\')"><div class="stripe" style="background:'+lmStripe(l)+'"></div>'
           +'<div class="lc-t">'+esc(l.company)+'</div>'
           +'<div class="lc-m">'+esc(l.product)+' · '+esc(lmSourceLabel(l.source))+'</div>'
           +(f.length?'<div class="lc-f">'+f.join('')+'</div>':'')+'</div>';
       }).join('');
       var more=items.length>8?'<div class="cell-sub" style="padding:6px 2px">+'+(items.length-8)+' more</div>':'';
-      return '<div class="col"><div class="col-h">'+esc(c.label)+' <span class="col-n">'+items.length+'</span><div class="cell-sub" style="font-weight:400;text-transform:none;letter-spacing:0">'+esc(c.hint)+'</div></div>'+(cards||'<div class="cell-sub" style="padding:8px 2px">—</div>')+more+'</div>';
+      return '<div class="col"><div class="col-h">'+s.i+' · '+esc(s.label)+' <span class="col-n">'+items.length+'</span></div>'+(cards||'<div class="cell-sub" style="padding:8px 2px">—</div>')+more+'</div>';
     }).join('');
-    return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Funnel board · '+LM.rows.length+' lead(s)'
+    return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Funnel board · '+active.length+' active'+(retN?' · '+retN+' rejected':'')
       +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="kan">'+cols+'</div></div>';
+      +'<div class="kan">'+cols+'</div>'
+      +'<div class="hint" style="margin-top:8px"><b>Accepted</b> = a rep owns it (claimed or assigned to a rep). <b>Engaged → Repeat</b> are deal stages — they populate once Phase-2 deal tracking is in. Rejected (returned to marketing) shows in Returned by sales.</div></div>';
   }
-  function pct(n,d){ return d?Math.round(n/d*100):0; }
   function paneConversion(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
-    var rows=LM.rows;
-    var total=rows.length;
-    /* Cohort funnel from the lifecycle timestamps — a lead that is now Owned was once Captured,
-       so we count "ever reached" via qualified_at / assigned_at / assigned_to, not current state. */
-    var cQual=rows.filter(function(l){return l.qualifiedAt||lmIsQualified(l)||lmIsAssigned(l);}).length;
-    var cAsg =rows.filter(function(l){return l.assignedAt||(lmIsAssigned(l));}).length;
-    var cOwn =rows.filter(function(l){return !!l.assignedTo;}).length;
+    var rows=LM.rows, total=rows.length;
+    /* "Ever reached" via lifecycle signals (persist through returns), mapped to the 8-stage funnel. */
+    var cQual=rows.filter(function(l){return l.qualifiedAt||lmIsQualified(l)||lmIsAssigned(l)||l.assignedTo;}).length;
+    var cAcc =rows.filter(function(l){return !!l.assignedTo;}).length;   // Accepted = has an owner
     var cRet =rows.filter(lmIsReturned).length;
+    var reached=[total,cQual,cAcc,0,0,0,0,0];
+    var funnel=L_STAGES.map(function(s,i){
+      var n=reached[i], base=(i===0)?total:reached[i-1];
+      var conv=(i===0)?'100%':(base?pct(n,base)+'%':'—');
+      return fnRow(s.i+' '+s.label, pct(n,total), String(n), conv, i>=6?'var(--green)':'');
+    }).join('');
     var kpis=
       kcard('Leads captured',String(total),'all sources')+
       kcard('Captured → Qualified',pct(cQual,total)+'%',cQual+' of '+total)+
-      kcard('Qualified → Assigned',pct(cAsg,cQual)+'%',cAsg+' assigned to a region')+
-      kcard('Assigned → Owned',pct(cOwn,cAsg)+'%',cOwn+' claimed by a rep');
-    var stages=[['Captured',total,total],['Qualified',cQual,total],['Assigned to region',cAsg,total],['Owned by a rep',cOwn,total]];
-    var prev=[total,total,cQual,cAsg];
-    var funnel=stages.map(function(s,i){ return fnRow(s[0],pct(s[1],total),String(s[1]),pct(s[1],prev[i])+'%',i>=3?'var(--green)':''); }).join('');
-    /* By source — real capture channels */
-    var bySrc={}; rows.forEach(function(l){ var s=l.source||'—'; (bySrc[s]=bySrc[s]||{cap:0,q:0,a:0,o:0}); bySrc[s].cap++; if(l.qualifiedAt||lmIsQualified(l)||lmIsAssigned(l))bySrc[s].q++; if(l.assignedAt||lmIsAssigned(l))bySrc[s].a++; if(l.assignedTo)bySrc[s].o++; });
-    var srcRows=Object.keys(bySrc).sort(function(a,b){return bySrc[b].cap-bySrc[a].cap;}).map(function(s){ var r=bySrc[s]; return '<tr><td>'+esc(lmSourceLabel(s))+'</td><td class="mono">'+r.cap+'</td><td class="mono">'+r.q+'</td><td class="mono">'+r.a+'</td><td class="mono">'+r.o+'</td></tr>'; }).join('')
-      || '<tr><td colspan="5" class="cell-sub" style="padding:12px;text-align:center">No leads yet.</td></tr>';
-    /* By region — only meaningful once assigned to a region */
+      kcard('Qualified → Accepted',pct(cAcc,cQual)+'%',cAcc+' with an owner')+
+      kcard('In deal stages','0','Engaged → Repeat · Phase 2');
+    /* By source — real capture channels, aligned to the funnel (Captured / Qualified / Accepted) */
+    var bySrc={}; rows.forEach(function(l){ var s=l.source||'—'; (bySrc[s]=bySrc[s]||{cap:0,q:0,acc:0}); bySrc[s].cap++; if(l.qualifiedAt||lmIsQualified(l)||lmIsAssigned(l)||l.assignedTo)bySrc[s].q++; if(l.assignedTo)bySrc[s].acc++; });
+    var srcRows=Object.keys(bySrc).sort(function(a,b){return bySrc[b].cap-bySrc[a].cap;}).map(function(s){ var r=bySrc[s]; return '<tr><td>'+esc(lmSourceLabel(s))+'</td><td class="mono">'+r.cap+'</td><td class="mono">'+r.q+'</td><td class="mono">'+r.acc+'</td></tr>'; }).join('')
+      || '<tr><td colspan="4" class="cell-sub" style="padding:12px;text-align:center">No leads yet.</td></tr>';
+    /* By region — routing view: region-assigned leads, owned vs still-unclaimed */
     var byReg={}; rows.filter(lmIsAssigned).forEach(function(l){ var k=l.assignedRegion||'—'; (byReg[k]=byReg[k]||{a:0,o:0}); byReg[k].a++; if(l.assignedTo)byReg[k].o++; });
     var regRows=Object.keys(byReg).sort(function(a,b){return byReg[b].a-byReg[a].a;}).map(function(k){ var r=byReg[k]; return '<tr><td>'+esc(lmRegionName(k))+'</td><td class="mono">'+r.a+'</td><td class="mono">'+r.o+'</td><td class="mono">'+(r.a-r.o)+'</td></tr>'; }).join('')
       || '<tr><td colspan="4" class="cell-sub" style="padding:12px;text-align:center">Nothing assigned to a region yet.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
       +'<div class="grid2" style="margin-bottom:12px">'
-      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Lead funnel · all leads</div>'+funnel
-      +'<div class="hint">Bars are share of all captured leads; the right figure is stage-to-stage conversion. Based on lifecycle timestamps, so a lead counts toward every stage it has reached.'+(cRet?' · '+cRet+' currently returned to marketing.':'')+'</div></div>'
+      +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Stage funnel · all leads</div>'+funnel
+      +'<div class="hint">Bars are share of all captured leads; the right figure is stage-to-stage conversion. <b>Accepted</b> = a rep owns it. Stages 3–7 populate with Phase-2 deal tracking.'+(cRet?' · '+cRet+' currently rejected (returned to marketing).':'')+'</div></div>'
       +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> By capture source</div>'
-      +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Source</th><th>Captured</th><th>Qualified</th><th>Assigned</th><th>Owned</th></tr></thead><tbody>'+srcRows+'</tbody></table></div></div></div>'
+      +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Source</th><th>Captured</th><th>Qualified</th><th>Accepted</th></tr></thead><tbody>'+srcRows+'</tbody></table></div></div></div>'
       +'<div class="grid2"><div class="card"><div class="section-title"><span class="section-title-bar"></span> By region · assigned leads</div>'
       +'<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Region</th><th>Assigned</th><th>Owned</th><th>Unclaimed</th></tr></thead><tbody>'+regRows+'</tbody></table></div></div>'
       +'<div class="card"><div class="section-title"><span class="section-title-bar"></span> Deal analytics</div>'
-      +'<div class="alert-warn" style="margin-top:2px">Quoted / shipped / repeat, weighted pipeline and days-to-ship need deal-stage data the CRM doesn’t capture yet. These arrive with the Phase-2 deal tracking &amp; SLA rules.</div></div></div>';
+      +'<div class="alert-warn" style="margin-top:2px">Engaged / Specs / Quoted / Shipped / Repeat, weighted pipeline and days-to-ship need deal-stage data the CRM doesn’t capture yet. These arrive with the Phase-2 deal tracking &amp; SLA rules.</div></div></div>';
   }
 
   /* ═══════════════════ CAMPAIGNS destination (REAL — crm_campaigns) ═══════════════════ */
