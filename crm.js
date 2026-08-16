@@ -2975,7 +2975,7 @@ window.CRM = (function(){
   }
 
   /* ═══════════════════ SHOW MODE — real capture (offline-safe, writes crm_leads) ═══════════════════ */
-  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporters:{},importers:{},signals:{},scanned:{},bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null,editingId:null};
+  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporters:{},importers:{},signals:{},scanned:{},bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null,editingId:null,campaignRows:[]};
   var CAP_PRODUCTS=['Potatoes','Citrus','Grapes','Onions','Spring Onions','Pomegranate','Field Crops','Mango','Carrots','Sweet Potato','Pumpkin','Peanuts','Other'];
   var CAP_EXP=['Grower','Trader','Association','Other'];
   var CAP_IMP=['Agent','Retailer','Wholesaler','Other'];
@@ -3014,9 +3014,25 @@ window.CRM = (function(){
        likely has signal — instead of at first Scan/Photo tap. Warms the SW cache for offline use. */
     try{ capLoadScript('lib/jsQR.js').catch(function(){}); capLoadScript('lib/qrcode.min.js').catch(function(){}); capLoadScript('lib/tesseract.min.js').catch(function(){}); }catch(e){}
     capLoadQueue().then(function(items){ CAP.items=items.sort(function(a,b){return (b.captured_at||'').localeCompare(a.captured_at||'');}); capRenderList(); capRenderHead(); capSync(); }).catch(function(){});
-    if(SB) SB.from('crm_campaigns').select('id,name,type,active,public_token').eq('active',true).order('created_at',{ascending:false}).then(function(res){ if(res&&!res.error){ CAP.campaigns=res.data||[]; if(!CAP.campaignId && CAP.campaigns.length) CAP.campaignId=capDefaultCampaign(CAP.campaigns); capRenderHead(); } }).catch(function(){});
-    try{ window.addEventListener('online',function(){ CAP.online=true; capRenderHead(); capSync(); }); window.addEventListener('offline',function(){ CAP.online=false; capRenderHead(); }); }catch(e){}
-    if(!CAP._timer) CAP._timer=setInterval(function(){ if(CAP.online && capPending().length) capSync(); },20000);
+    if(SB) SB.from('crm_campaigns').select('id,name,type,active,public_token').eq('active',true).order('created_at',{ascending:false}).then(function(res){ if(res&&!res.error){ CAP.campaigns=res.data||[]; if(!CAP.campaignId && CAP.campaigns.length) CAP.campaignId=capDefaultCampaign(CAP.campaigns); capRenderHead(); capLoadCampaign(); } }).catch(function(){});
+    try{ window.addEventListener('online',function(){ CAP.online=true; capRenderHead(); capSync(); capLoadCampaign(); }); window.addEventListener('offline',function(){ CAP.online=false; capRenderHead(); }); }catch(e){}
+    if(!CAP._timer) CAP._timer=setInterval(function(){ if(CAP.online){ if(capPending().length) capSync(); capLoadCampaign(); } },20000);
+  }
+  /* Campaign-wide roster: everyone's captures for the selected campaign, via a SECURITY DEFINER
+     RPC (a commercial rep can't SELECT their own region-less captures directly under RLS). */
+  function capLoadCampaign(){
+    if(!SB || !CAP.campaignId || !CAP.online) return;
+    SB.rpc('crm_show_mode_captures',{p_campaign:CAP.campaignId}).then(function(res){
+      if(res && !res.error){ CAP.campaignRows=res.data||[]; capRenderList(); }
+    }, function(){}).catch(function(){});
+  }
+  /* Merge everyone's synced campaign rows with this device's not-yet-synced local captures (by client_uuid). */
+  function capMergedRows(){
+    var seen={}, out=[];
+    (CAP.campaignRows||[]).forEach(function(r){ if(r.client_uuid) seen[r.client_uuid]=1; out.push(r); });
+    (CAP.items||[]).forEach(function(r){ if(!r._synced && !seen[r.client_uuid]) out.push(r); });
+    out.sort(function(a,b){ return (b.captured_at||'').localeCompare(a.captured_at||''); });
+    return out;
   }
 
   function capDataUrlToBlob(durl){ var p=durl.split(','), mime=((p[0].match(/:(.*?);/)||[])[1])||'image/jpeg', bin=atob(p[1]), n=bin.length, u8=new Uint8Array(n); for(var i=0;i<n;i++) u8[i]=bin.charCodeAt(i); return new Blob([u8],{type:mime}); }
@@ -3056,7 +3072,7 @@ window.CRM = (function(){
       CAP.syncing=false;
       if(res&&res.error){ toast('Sync will retry — '+esc(res.error.message||'')); capRenderHead(); return; }
       pending.forEach(function(r){ r._synced=true; capPut(r); });
-      capRenderHead(); capRenderList();
+      capRenderHead(); capRenderList(); capLoadCampaign();   /* pull the freshly-synced rows into the campaign roster */
     }).catch(function(){ CAP.syncing=false; capRenderHead(); });
   }
 
@@ -3305,7 +3321,7 @@ window.CRM = (function(){
     ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
     var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
     var o=$('cap_products_other'); if(o) o.style.display='none'; capRenderPhotoChip(); }
-  function capSetCampaign(id){ CAP.campaignId=id; capRenderHead(); }
+  function capSetCampaign(id){ CAP.campaignId=id; CAP.campaignRows=[]; capRenderHead(); capRenderList(); capLoadCampaign(); }
 
   function capExport(){
     if(!CAP.items.length){ toast('Nothing to export yet.'); return; }
@@ -3340,19 +3356,25 @@ window.CRM = (function(){
       +'<span style="margin-left:auto">'+capStatusPill()+'</span></div>';
   }
   function capListHtml(){
-    if(!CAP.items.length) return '<div class="empty-state">No captures yet. Fill the form and tap <b>Save &amp; capture next</b>.</div>';
-    return '<div class="hint" style="margin-bottom:8px">Only your captures on this device this session. Tap a row for full details.</div>'
-      +'<div class="table-wrap"><table><thead><tr><th>Time</th><th>Company</th><th>Contact</th><th>Email</th><th class="right"></th></tr></thead><tbody>'
-      +CAP.items.slice(0,50).map(function(r){
+    var rows=capMergedRows(); var myId=USER&&USER.id;
+    var camp=(function(){ for(var j=0;j<(CAP.campaigns||[]).length;j++){ if(CAP.campaigns[j].id===CAP.campaignId) return CAP.campaigns[j].name; } return ''; })();
+    if(!rows.length) return '<div class="hint" style="margin-bottom:8px">Everyone’s captures for '+(camp?'<b>'+esc(camp)+'</b>':'this campaign')+' — the whole team’s, refreshing as they sync. Tap a row for details.</div><div class="empty-state">No captures yet. Fill the form and tap <b>Save &amp; capture next</b>.</div>';
+    return '<div class="hint" style="margin-bottom:8px">Everyone’s captures for '+(camp?'<b>'+esc(camp)+'</b>':'this campaign')+' — <b>'+rows.length+'</b> so far, the whole team’s. Tap a row for details.</div>'
+      +'<div class="table-wrap"><table><thead><tr><th>Time</th><th>Company</th><th>By</th><th>Contact</th><th class="right"></th></tr></thead><tbody>'
+      +rows.slice(0,200).map(function(r){
         var t=r.captured_at?r.captured_at.slice(11,16):'';
-        var sync=r._synced?'<span class="badge badge-pass" title="synced to lead store">✓</span>':'<span class="badge badge-warn" title="pending sync">…</span>';
+        var mine=(myId && r.captured_by===myId);
+        var local=!r._synced && !r.captured_by;   /* device-local, not yet in DB */
+        var sync=local?'<span class="badge badge-warn" title="on this device, pending sync">…</span>':'<span class="badge badge-pass" title="in the lead store">✓</span>';
         var tags=(r.raw_payload&&r.raw_payload.tags)||[];
         var dot=tags.indexOf('🔥 Hot lead')>=0?'<span class="cap-dot hot" title="Hot lead"></span>':(tags.length?'<span class="cap-dot warm" title="'+esc(tags.join(', '))+'"></span>':'');
-        return '<tr style="cursor:pointer" onclick="CRM.capOpenDetail(\''+esc(r.client_uuid)+'\')"><td class="mono">'+esc(t)+'</td><td>'+dot+esc(r.company_name||'—')+'</td><td>'+esc(r.contact_name||'—')+(r.contact_role?'<div class="cell-sub">'+esc(r.contact_role)+'</div>':'')+'</td><td class="cell-sub">'+esc(r.email||'—')+'</td><td class="right">'+sync+'</td></tr>';
+        var by=mine?'<span class="cap-you">You</span>':esc(r.captured_by_name||(local?'You (device)':'—'));
+        return '<tr style="cursor:pointer" onclick="CRM.capOpenDetail(\''+esc(r.client_uuid)+'\')"><td class="mono">'+esc(t)+'</td><td>'+dot+esc(r.company_name||'—')+(r.email?'<div class="cell-sub">'+esc(r.email)+'</div>':'')+'</td><td class="cell-sub">'+by+'</td><td>'+esc(r.contact_name||'—')+(r.contact_role?'<div class="cell-sub">'+esc(r.contact_role)+'</div>':'')+'</td><td class="right">'+sync+'</td></tr>';
       }).join('')+'</tbody></table></div>';
   }
   function capOpenDetail(uuid){
-    var r=null,i; for(i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; break; } }
+    var r=null,i,own=false; for(i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; own=true; break; } }
+    if(!r){ for(i=0;i<(CAP.campaignRows||[]).length;i++){ if(CAP.campaignRows[i].client_uuid===uuid){ r=CAP.campaignRows[i]; break; } } }   /* a teammate's capture — read-only */
     if(!r) return;
     var rp=r.raw_payload||{};
     var row=function(k,v){ if(v==null||v===''||(Array.isArray(v)&&!v.length)) return ''; if(Array.isArray(v)) v=v.join(', ');
@@ -3377,10 +3399,11 @@ window.CRM = (function(){
       : '';
     var body='<div style="padding:2px">'
       +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px"><div style="font-family:var(--font-display,var(--font-body));font-size:19px;color:var(--text)">'+esc(r.company_name||'—')+'</div>'
-      +(r._synced?'<span class="badge badge-pass">synced</span>':'<span class="badge badge-warn">pending sync</span>')+'</div>'
+      +((own&&!r._synced)?'<span class="badge badge-warn">pending sync</span>':'<span class="badge badge-pass">synced</span>')+'</div>'
       +photoHtml
       +groupHtml
       +row('Captured', r.captured_at?r.captured_at.replace('T',' ').slice(0,16).replace(/-/g,'/'):'')
+      +row('Captured by', r.captured_by_name)
       +row('Campaign', camp)
       +row('Source', srcLabel)
       +row('Contact', r.contact_name)
@@ -3400,7 +3423,7 @@ window.CRM = (function(){
       +row('Annual quantity', rp.annual_quantity)
       +row('Follow-up actions', fu)
       +row('Notes', r.notes)
-      +'<div class="l-formact" style="margin-top:14px"><button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button><button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
+      +'<div class="l-formact" style="margin-top:14px">'+(own?'<button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button><button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button>':'')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
       +'</div>';
     showDlv('Captured lead', body);
     /* synced-but-not-local (e.g. reopened later): fetch a signed URL for the stored photo */
@@ -4954,6 +4977,7 @@ function injectCrmCss(){
 .crmv .cap-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
 .crmv .cap-dot.hot{background:var(--red)}
 .crmv .cap-dot.warm{background:var(--amber)}
+.crmv .cap-you{display:inline-block;font-size:10px;font-weight:700;color:#fff;background:var(--accent);border-radius:999px;padding:1px 8px}
 /* sticky Save bar inside the capture card */
 .crmv .cap-actions{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border);margin:14px -16px -14px;padding:11px 16px calc(11px + env(safe-area-inset-bottom));z-index:5}
 @media(max-width:767px){ .crmv .cap-head-row .cap-title{font-size:19px} }
