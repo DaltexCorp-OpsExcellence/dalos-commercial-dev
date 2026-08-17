@@ -73,18 +73,20 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .staging-badge{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(135deg,#ff6b35 0%,#f7c948 100%);color:#fff;padding:4px 12px 4px 9px;border-radius:20px;box-shadow:0 3px 14px rgba(255,107,53,.4);font-size:10px;font-family:'Courier New',monospace;font-weight:700;letter-spacing:.18em;text-transform:uppercase}
 
 /* ── boot / gate screens ── */
-.boot{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--bg);padding:24px;text-align:center}
-.boot-logo{font-family:var(--font-display);font-size:26px;color:var(--text)}
-.boot-logo .os{color:var(--accent)}
-.boot-mark{width:60px;height:60px;display:block;filter:drop-shadow(0 8px 22px rgba(47,42,61,.35));animation:cm-mark-pulse 2.4s ease-in-out infinite}
+/* Dark aubergine boot/gate — seamless with the pre-mount splash; the brand mark
+   renders transparent (no tile box) so it reads as art, not a pasted-on square. */
+.boot{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:linear-gradient(160deg,#463f57 0%,#2f2a3d 46%,#201c29 100%);padding:24px;text-align:center}
+.boot-logo{font-family:var(--font-display);font-size:26px;color:#f4f1e8}
+.boot-logo .os{color:#b9a6ff}
+.boot-mark{width:58px;height:58px;display:block;filter:drop-shadow(0 6px 20px rgba(124,77,255,.38));animation:cm-mark-pulse 2.4s ease-in-out infinite}
 .boot-mark svg{width:100%;height:100%;display:block}
 @keyframes cm-mark-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
 /* Sidebar lockup mark (beside the DalOS Commercial wordmark) */
-.crmv .logo-mark{width:30px;height:30px;flex:0 0 30px;display:block}
+.crmv .logo-mark{width:32px;height:32px;flex:0 0 32px;display:block}
 .crmv .logo-mark svg{width:100%;height:100%;display:block}
-.boot-sub{font-size:12px;color:var(--text3);letter-spacing:.04em}
-.boot-spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:dalos-spin .8s linear infinite}
-.boot-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:26px 30px;max-width:380px;box-shadow:0 8px 30px rgba(26,26,23,.08)}
+.boot-sub{font-size:12px;color:#9a92b0;letter-spacing:.04em}
+.boot-spin{width:26px;height:26px;border:3px solid rgba(255,255,255,.14);border-top-color:#b9a6ff;border-radius:50%;animation:dalos-spin .8s linear infinite}
+.boot-card{background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:26px 30px;max-width:380px;box-shadow:0 18px 50px rgba(0,0,0,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .boot-btn{display:inline-block;margin-top:16px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;padding:9px 18px;border-radius:8px;text-decoration:none}
 .boot-btn:hover{background:var(--accent2)}
 
@@ -140,9 +142,9 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 <div id="root"></div>
 <!-- pre-mount splash: branded aubergine loading screen, shown instantly while React/supabase
      load and auth resolves; faded out by App once phase is ready/gate. -->
-<div id="cm-splash" style="position:fixed;inset:0;z-index:9999;background:#2f2a3d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .45s ease">
-  <div style="width:66px;height:66px;animation:cm-mark-pulse 2.4s ease-in-out infinite;filter:drop-shadow(0 10px 26px rgba(0,0,0,.4))">
-    <svg width="100%" height="100%" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-label="DalOS Commercial"><defs><linearGradient id="bgSp" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#463f57"/><stop offset="0.46" stop-color="#2f2a3d"/><stop offset="1" stop-color="#201c29"/></linearGradient><radialGradient id="shSp" cx="0.28" cy="0.12" r="0.75"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.16"/><stop offset="0.55" stop-color="#9d84ff" stop-opacity="0"/></radialGradient><linearGradient id="arSp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.5"/><stop offset="1" stop-color="#9d84ff" stop-opacity="0"/></linearGradient><radialGradient id="glSp" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#d7ccff" stop-opacity="0.85"/><stop offset="1" stop-color="#d7ccff" stop-opacity="0"/></radialGradient></defs><rect width="64" height="64" rx="14" fill="url(#bgSp)"/><rect width="64" height="64" rx="14" fill="url(#shSp)"/><g transform="translate(10.88,10.88) scale(0.66)"><path d="M11 44 L25 36 L37 40 L53 17 L53 49 L11 49 Z" fill="url(#arSp)"/><path d="M11 44 L25 36 L37 40 L53 17" fill="none" stroke="#b9a6ff" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/><g fill="#8b6fff"><circle cx="11" cy="44" r="3"/><circle cx="25" cy="36" r="3"/><circle cx="37" cy="40" r="3"/></g><circle cx="53" cy="17" r="9" fill="url(#glSp)"/><circle cx="53" cy="17" r="4.5" fill="#d7ccff"/></g></svg>
+<div id="cm-splash" style="position:fixed;inset:0;z-index:9999;background:linear-gradient(160deg,#463f57 0%,#2f2a3d 46%,#201c29 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .45s ease">
+  <div style="width:62px;height:62px;animation:cm-mark-pulse 2.4s ease-in-out infinite;filter:drop-shadow(0 8px 22px rgba(124,77,255,.4))">
+    <svg width="100%" height="100%" viewBox="4 4 56 50" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="DalOS Commercial"><path d="M11 44 L25 36 L37 40 L53 17" stroke="#c9b6ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><g fill="#a98bff"><circle cx="11" cy="44" r="3"/><circle cx="25" cy="36" r="3"/><circle cx="37" cy="40" r="3"/></g><circle cx="53" cy="17" r="5.2" fill="#e2d7ff"/></svg>
   </div>
   <div style="font-family:'DM Serif Display',Georgia,serif;font-size:22px"><span style="color:#f4f1e8">Dal</span><span style="color:#b9a6ff">OS</span><span style="color:#f4f1e8"> Commercial</span></div>
   <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9a92b0;font-family:'Instrument Sans',system-ui,sans-serif">Loading…</div>
@@ -1001,9 +1003,10 @@ function CRMHost(props){
   );
 }
 
-/* Growth-pipeline brand mark (aubergine tile). Reused in the sidebar lockup + boot/gate.
-   Gradient ids suffixed "Mk" so they don't collide with the pre-mount splash's. */
-var SYMBOL_SVG='<svg width="100%" height="100%" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bgMk" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#463f57"/><stop offset="0.46" stop-color="#2f2a3d"/><stop offset="1" stop-color="#201c29"/></linearGradient><radialGradient id="shMk" cx="0.28" cy="0.12" r="0.75"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.16"/><stop offset="0.55" stop-color="#9d84ff" stop-opacity="0"/></radialGradient><linearGradient id="arMk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.5"/><stop offset="1" stop-color="#9d84ff" stop-opacity="0"/></linearGradient><radialGradient id="glMk" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#d7ccff" stop-opacity="0.85"/><stop offset="1" stop-color="#d7ccff" stop-opacity="0"/></radialGradient></defs><rect width="64" height="64" rx="14" fill="url(#bgMk)"/><rect width="64" height="64" rx="14" fill="url(#shMk)"/><g transform="translate(10.88,10.88) scale(0.66)"><path d="M11 44 L25 36 L37 40 L53 17 L53 49 L11 49 Z" fill="url(#arMk)"/><path d="M11 44 L25 36 L37 40 L53 17" fill="none" stroke="#b9a6ff" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/><g fill="#8b6fff"><circle cx="11" cy="44" r="3"/><circle cx="25" cy="36" r="3"/><circle cx="37" cy="40" r="3"/></g><circle cx="53" cy="17" r="9" fill="url(#glMk)"/><circle cx="53" cy="17" r="4.5" fill="#d7ccff"/></g></svg>';
+/* Growth-pipeline brand mark — TRANSPARENT (no tile, no radial glow), so it reads as
+   clean vector art on the aubergine chrome instead of a pasted-on box. Reused in the
+   sidebar lockup + boot/gate. Light-violet inks for contrast on the dark aubergine. */
+var SYMBOL_SVG='<svg width="100%" height="100%" viewBox="4 4 56 50" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 44 L25 36 L37 40 L53 17" stroke="#c9b6ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><g fill="#a98bff"><circle cx="11" cy="44" r="3"/><circle cx="25" cy="36" r="3"/><circle cx="37" cy="40" r="3"/></g><circle cx="53" cy="17" r="5.2" fill="#e2d7ff"/></svg>';
 
 /* Simple boot / gate screens */
 function Boot(props){
