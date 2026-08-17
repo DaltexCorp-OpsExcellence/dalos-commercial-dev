@@ -4,7 +4,12 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>DalOS Commercial</title>
-<meta name="theme-color" content="#1e2d22"/>
+<meta name="theme-color" content="#2f2a3d"/>
+<!-- Browser-tab / bookmark identity: growth-pipeline mark on aubergine (DalOS Commercial brand). -->
+<link rel="icon" href="favicon.ico" sizes="any"/>
+<link rel="icon" type="image/svg+xml" href="favicon.svg"/>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"/>
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png"/>
 <!-- Add-to-Home-Screen: DalOS Capture. Manifest start_url (#capture) makes the iOS icon relaunch
      into Show Mode; apple-* meta give standalone display + icon. -->
 <link rel="manifest" href="manifest.webmanifest"/>
@@ -71,6 +76,12 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .boot{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--bg);padding:24px;text-align:center}
 .boot-logo{font-family:var(--font-display);font-size:26px;color:var(--text)}
 .boot-logo .os{color:var(--accent)}
+.boot-mark{width:60px;height:60px;display:block;filter:drop-shadow(0 8px 22px rgba(47,42,61,.35));animation:cm-mark-pulse 2.4s ease-in-out infinite}
+.boot-mark svg{width:100%;height:100%;display:block}
+@keyframes cm-mark-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+/* Sidebar lockup mark (beside the DalOS Commercial wordmark) */
+.crmv .logo-mark{width:30px;height:30px;flex:0 0 30px;display:block}
+.crmv .logo-mark svg{width:100%;height:100%;display:block}
 .boot-sub{font-size:12px;color:var(--text3);letter-spacing:.04em}
 .boot-spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:dalos-spin .8s linear infinite}
 .boot-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:26px 30px;max-width:380px;box-shadow:0 8px 30px rgba(26,26,23,.08)}
@@ -127,6 +138,15 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 </head>
 <body>
 <div id="root"></div>
+<!-- pre-mount splash: branded aubergine loading screen, shown instantly while React/supabase
+     load and auth resolves; faded out by App once phase is ready/gate. -->
+<div id="cm-splash" style="position:fixed;inset:0;z-index:9999;background:#2f2a3d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .45s ease">
+  <div style="width:66px;height:66px;animation:cm-mark-pulse 2.4s ease-in-out infinite;filter:drop-shadow(0 10px 26px rgba(0,0,0,.4))">
+    <svg width="100%" height="100%" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-label="DalOS Commercial"><defs><linearGradient id="bgSp" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#463f57"/><stop offset="0.46" stop-color="#2f2a3d"/><stop offset="1" stop-color="#201c29"/></linearGradient><radialGradient id="shSp" cx="0.28" cy="0.12" r="0.75"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.16"/><stop offset="0.55" stop-color="#9d84ff" stop-opacity="0"/></radialGradient><linearGradient id="arSp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.5"/><stop offset="1" stop-color="#9d84ff" stop-opacity="0"/></linearGradient><radialGradient id="glSp" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#d7ccff" stop-opacity="0.85"/><stop offset="1" stop-color="#d7ccff" stop-opacity="0"/></radialGradient></defs><rect width="64" height="64" rx="14" fill="url(#bgSp)"/><rect width="64" height="64" rx="14" fill="url(#shSp)"/><g transform="translate(10.88,10.88) scale(0.66)"><path d="M11 44 L25 36 L37 40 L53 17 L53 49 L11 49 Z" fill="url(#arSp)"/><path d="M11 44 L25 36 L37 40 L53 17" fill="none" stroke="#b9a6ff" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/><g fill="#8b6fff"><circle cx="11" cy="44" r="3"/><circle cx="25" cy="36" r="3"/><circle cx="37" cy="40" r="3"/></g><circle cx="53" cy="17" r="9" fill="url(#glSp)"/><circle cx="53" cy="17" r="4.5" fill="#d7ccff"/></g></svg>
+  </div>
+  <div style="font-family:'DM Serif Display',Georgia,serif;font-size:22px"><span style="color:#f4f1e8">Dal</span><span style="color:#b9a6ff">OS</span><span style="color:#f4f1e8"> Commercial</span></div>
+  <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9a92b0;font-family:'Instrument Sans',system-ui,sans-serif">Loading…</div>
+</div>
 <script type="text/javascript">
 var useState = React.useState;
 var ce = React.createElement;
@@ -937,7 +957,10 @@ function CRMHost(props){
       /* Left sidebar — host-rendered nav using crm.js's own .sidebar/.nav-* classes. */
       ce('div',{className:'sidebar'+(mobNav?' mob-open':''),style:{overflowY:'auto'}},
         ce('div',{className:'logo'},
-          ce('div',{className:'logo-name'},'DalOS Commercial'),
+          ce('div',{style:{display:'flex',alignItems:'center',gap:10}},
+            ce('span',{className:'logo-mark','aria-hidden':'true',dangerouslySetInnerHTML:{__html:SYMBOL_SVG}}),
+            ce('div',{className:'logo-name'},'DalOS Commercial')
+          ),
           ce('div',{className:'logo-crop'},ce('span',{className:'crop-dot'}),'Commercial · 2025/26')
         ),
         ce('div',{className:'nav-label'},'Tracking & Claims'),
@@ -978,9 +1001,14 @@ function CRMHost(props){
   );
 }
 
+/* Growth-pipeline brand mark (aubergine tile). Reused in the sidebar lockup + boot/gate.
+   Gradient ids suffixed "Mk" so they don't collide with the pre-mount splash's. */
+var SYMBOL_SVG='<svg width="100%" height="100%" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bgMk" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#463f57"/><stop offset="0.46" stop-color="#2f2a3d"/><stop offset="1" stop-color="#201c29"/></linearGradient><radialGradient id="shMk" cx="0.28" cy="0.12" r="0.75"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.16"/><stop offset="0.55" stop-color="#9d84ff" stop-opacity="0"/></radialGradient><linearGradient id="arMk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9d84ff" stop-opacity="0.5"/><stop offset="1" stop-color="#9d84ff" stop-opacity="0"/></linearGradient><radialGradient id="glMk" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#d7ccff" stop-opacity="0.85"/><stop offset="1" stop-color="#d7ccff" stop-opacity="0"/></radialGradient></defs><rect width="64" height="64" rx="14" fill="url(#bgMk)"/><rect width="64" height="64" rx="14" fill="url(#shMk)"/><g transform="translate(10.88,10.88) scale(0.66)"><path d="M11 44 L25 36 L37 40 L53 17 L53 49 L11 49 Z" fill="url(#arMk)"/><path d="M11 44 L25 36 L37 40 L53 17" fill="none" stroke="#b9a6ff" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/><g fill="#8b6fff"><circle cx="11" cy="44" r="3"/><circle cx="25" cy="36" r="3"/><circle cx="37" cy="40" r="3"/></g><circle cx="53" cy="17" r="9" fill="url(#glMk)"/><circle cx="53" cy="17" r="4.5" fill="#d7ccff"/></g></svg>';
+
 /* Simple boot / gate screens */
 function Boot(props){
   return ce('div',{className:'boot'},
+    ce('span',{className:'boot-mark','aria-hidden':'true',dangerouslySetInnerHTML:{__html:SYMBOL_SVG}}),
     ce('div',{className:'boot-logo'},'Dal',ce('span',{className:'os'},'OS'),' Commercial'),
     ce('div',{className:'boot-spin'}),
     ce('div',{className:'boot-sub'},props.msg||'Loading…')
@@ -989,6 +1017,7 @@ function Boot(props){
 function Gate(props){
   return ce('div',{className:'boot'},
     ce('div',{className:'boot-card'},
+      ce('span',{className:'boot-mark',style:{margin:'0 auto 14px'},'aria-hidden':'true',dangerouslySetInnerHTML:{__html:SYMBOL_SVG}}),
       ce('div',{className:'boot-logo',style:{fontSize:22}},'Dal',ce('span',{className:'os'},'OS'),' Commercial'),
       ce('div',{className:'boot-sub',style:{marginTop:12,lineHeight:1.6}},props.msg),
       props.showSignIn&&ce('a',{className:'boot-btn',href:WORKSPACE_URL},'Go to DalOS Workspace')
@@ -1057,6 +1086,14 @@ function App(){
       setState({phase:'gate',msg:'Could not reach the server. Please retry.',showSignIn:true});
     });
   },[]);
+
+  /* Fade the pre-mount branded splash once we've resolved to the app or a gate screen. */
+  React.useEffect(function(){
+    if(state.phase==='ready'||state.phase==='gate'){
+      var sp=document.getElementById('cm-splash');
+      if(sp){ sp.style.opacity='0'; setTimeout(function(){ if(sp.parentNode) sp.parentNode.removeChild(sp); },480); }
+    }
+  },[state.phase]);
 
   if(state.phase==='boot') return ce(Boot,{msg:state.msg});
   if(state.phase==='gate') return ce(Gate,{msg:state.msg,showSignIn:state.showSignIn});
