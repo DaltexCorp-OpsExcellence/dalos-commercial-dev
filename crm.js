@@ -2693,23 +2693,49 @@ window.CRM = (function(){
   function lmOpen(id){
     var l=lmById(id); if(!l) return;
     function row(lbl,val){ return '<div class="l-drow"><span class="cell-sub">'+lbl+'</span><span>'+val+'</span></div>'; }
+    var r0=l.raw||{}, rp=r0.raw_payload||{};
+    var fuMap={}; if(typeof CAP_FOLLOWUPS!=='undefined') CAP_FOLLOWUPS.forEach(function(o){ fuMap[o[0]]=o[1]; });
+    var or=function(v){ return (v==null||v===''||(Array.isArray(v)&&!v.length))?'<span class="cell-sub">—</span>':esc(Array.isArray(v)?v.join(', '):String(v)); };
+    var sec=function(t){ return '<div class="l-dsec">'+t+'</div>'; };
+    var withOther=function(t,o){ return or(t)+(o?' <span class="cell-sub">· other: '+esc(o)+'</span>':''); };
+    var imgBlock=function(id,label,path){ return path?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">'+label+'</div><img id="'+id+'" alt="'+label+'" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="'+id+'note">Loading…</div></div>':''; };
+    var photos=imgBlock('lmdet_img','Business card / badge',l.cardPath)+imgBlock('lmdet_gimg','Group photo with the lead',l.groupPath);
+    var fu=(rp.follow_ups&&rp.follow_ups.length)?rp.follow_ups.map(function(k){return fuMap[k]||k;}):[];
     var body='<div class="l-form"><div class="l-qhdr">'+esc(l.company)+'</div>'
-      +(l.cardPath?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">Business card / badge</div><img id="lmdet_img" alt="business card" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="lmdet_imgnote">Loading card photo…</div></div>':'')
-      +(l.groupPath?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">Group photo with the lead</div><img id="lmdet_gimg" alt="group photo" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="lmdet_gimgnote">Loading photo…</div></div>':'')
+      +sec('Identity')
       +row('Lead','<span class="lot">'+esc(l.ref)+'</span>')
       +row('Stage',lmStageBadge(l))
       +(l.disposition==='returned'?row('Returned',esc(l.returnReason||'—')+(l.returnedAt?' · '+esc(lmDate(l.returnedAt)):'')):'')
-      +(lmIsAssigned(l)?row('Owner',l.assignedTo?((lmIsMine(l)?'You':esc(l.assignedToName||'Another rep'))+(l.assignedByName?' <span class="cell-sub">· assigned by '+esc(l.assignedByName)+'</span>':'')):'<span class="cell-sub">Unclaimed · in the region inbox</span>'):'')
-      +row('Country · region',esc(l.country)+' · '+(l.assignedRegion?esc(lmRegionName(l.assignedRegion)):'<span class="cell-sub">unassigned</span>'))
-      +row('Product',esc(l.product))
-      +row('Volume band',esc(l.band||'—'))
-      +row('Contact',esc(l.contact||'—')+(l.role?' · '+esc(l.role):''))
-      +row('Email · phone',esc(l.email||'—')+(l.phone?' · '+esc(l.phone):''))
-      +row('Destination port',esc(l.port||'—'))
-      +row('Season window',esc(l.season||'—'))
-      +row('Source · campaign',esc(lmSourceLabel(l.source))+(l.campaign?' · '+esc(l.campaign):''))
-      +row('Captured',esc(lmDate(l.capturedAt))+' · '+esc(l.age))
-      +(l.notes?row('Notes',esc(l.notes).replace(/\n/g,'<br>')):'')
+      +row('Company',or(l.company))
+      +row('Country · region',or(l.country)+' · '+(l.assignedRegion?esc(lmRegionName(l.assignedRegion)):'<span class="cell-sub">unassigned</span>'))
+      +(lmIsAssigned(l)?row('Owner',l.assignedTo?((lmIsMine(l)?'You':esc(l.assignedToName||'Another rep'))+(l.assignedByName?' <span class="cell-sub">· by '+esc(l.assignedByName)+'</span>':'')):'<span class="cell-sub">Unclaimed · in the region inbox</span>'):'')
+      +row('Contact · role',or(l.contact)+(l.role?' · '+esc(l.role):''))
+      +row('Importer type',withOther(rp.importer_type,rp.importer_other))
+      +row('Exporter type',withOther(rp.exporter_type,rp.exporter_other))
+      +sec('How to reach')
+      +row('Email',or(l.email))
+      +row('Phone',or(l.phone))
+      +row('Website',or(l.website))
+      +row('Address',or(r0.address))
+      +sec('Their business')
+      +row('Products / industries',or(rp.products_industries))
+      +row('Export / import countries',or(rp.trade_countries))
+      +row('Annual quantity',or(rp.annual_quantity))
+      +sec('Interest & signal')
+      +row('Products of interest',or(l.products&&l.products.length?l.products:''))
+      +row('Other products',or(rp.products_other))
+      +row('Volume band',or(l.band))
+      +row('Destination port',or(l.port))
+      +row('Season window',or(l.season))
+      +row('Lead signal',or(rp.tags))
+      +row('Follow-up actions',or(fu))
+      +sec('Notes')
+      +row('Notes',l.notes?esc(l.notes).replace(/\n/g,'<br>'):'<span class="cell-sub">—</span>')
+      +sec('Photos / files')
+      +(photos||row('Uploaded','<span class="cell-sub">none</span>'))
+      +sec('Provenance')
+      +row('Source · campaign',or(lmSourceLabel(l.source))+(l.campaign?' · '+esc(l.campaign):''))
+      +row('Captured',or(lmDate(l.capturedAt))+' · '+esc(l.age))
       +lmDealStepperHtml(l)
       +lmThreadHtml(l);
     var acts=[];
@@ -5314,6 +5340,9 @@ function injectCrmCss(){
 .crmv .cap-dot.hot{background:var(--red)}
 .crmv .cap-dot.warm{background:var(--amber)}
 .crmv .cap-you{display:inline-block;font-size:10px;font-weight:700;color:#fff;background:var(--accent);border-radius:999px;padding:1px 8px}
+/* lead-drawer section headers (full dossier view) */
+.crmv .l-dsec{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);opacity:.85;margin:16px 0 4px;padding-top:9px;border-top:1px solid var(--border)}
+.crmv .l-form .l-dsec:first-of-type{margin-top:8px;border-top:none;padding-top:0}
 /* sticky Save bar inside the capture card */
 .crmv .cap-actions{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border);margin:14px -16px -14px;padding:11px 16px calc(11px + env(safe-area-inset-bottom));z-index:5}
 @media(max-width:767px){ .crmv .cap-head-row .cap-title{font-size:19px} }
