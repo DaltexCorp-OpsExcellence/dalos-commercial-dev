@@ -2737,6 +2737,7 @@ window.CRM = (function(){
       +row('Season window',or(l.season))
       +row('Lead signal',or(rp.tags))
       +row('Follow-up actions',or(fu))
+      +row('Follow-up · other',or(rp.followup_other))
       +sec('Notes')
       +row('Notes',l.notes?esc(l.notes).replace(/\n/g,'<br>'):'<span class="cell-sub">—</span>')
       +sec('Photos / files')
@@ -3092,7 +3093,7 @@ window.CRM = (function(){
   var CAP_EXP=['Grower','Trader','Association','Other'];
   var CAP_IMP=['Agent','Retailer','Wholesaler','Other'];
   var CAP_TAGS=['🔥 Hot lead','Price-sensitive','Big volume','Decision maker','Just browsing'];
-  var CAP_FOLLOWUPS=[['send_samples','Send samples'],['send_offer','Send price offer'],['send_catalogue','Send catalogue'],['schedule_call','Schedule call'],['followup_show','Follow up after show'],['mailing_list','Add to mailing list']];
+  var CAP_FOLLOWUPS=[['send_samples','Send samples'],['send_offer','Send price offer'],['send_catalogue','Send catalogue'],['schedule_call','Schedule call'],['followup_show','Follow up after show'],['mailing_list','Add to mailing list'],['other','Other']];
 
   function capUuid(){ try{ return crypto.randomUUID(); }catch(e){ return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16);}); } }
   function capDB(){ return new Promise(function(res,rej){ var r=indexedDB.open('dalos_capture',1); r.onupgradeneeded=function(e){ var db=e.target.result; if(!db.objectStoreNames.contains('queue')) db.createObjectStore('queue',{keyPath:'client_uuid'}); }; r.onsuccess=function(){res(r.result);}; r.onerror=function(){rej(r.error);}; }); }
@@ -3478,6 +3479,7 @@ window.CRM = (function(){
     var aq=capField('annual_quantity'); if(aq) extra.annual_quantity=aq;
     var fu=CAP_FOLLOWUPS.filter(function(o){ return CAP.followups[o[0]]; }).map(function(o){ return o[0]; });
     if(fu.length) extra.follow_ups=fu;
+    var fo=capField('followup_other'); if(fo && CAP.followups['other']) extra.followup_other=fo;
     var rp=(Object.keys(extra).length?extra:null);
     var fields={ company_name:company, contact_name:capField('contact')||null, contact_role:capField('role')||null,
       email:capField('email')||null, phone:capField('phone')||null, website:capField('website')||null,
@@ -3534,6 +3536,7 @@ window.CRM = (function(){
     if(rp.products_other && CAP.chips['Other']){ var o=$('cap_products_other'); if(o){ o.style.display='block'; o.value=rp.products_other; } }
     if(rp.importer_other && CAP.importers['Other']){ var io=$('cap_importer_other'); if(io){ io.style.display='block'; io.value=rp.importer_other; } }
     if(rp.exporter_other && CAP.exporters['Other']){ var eo=$('cap_exporter_other'); if(eo){ eo.style.display='block'; eo.value=rp.exporter_other; } }
+    if(rp.followup_other && CAP.followups['other']){ var fuo=$('cap_followup_other'); if(fuo){ fuo.style.display='block'; fuo.value=rp.followup_other; } }
     capRenderPhotoChip(); capRenderGroupChip();
     var w=$('viewContent'); if(w&&w.scrollTo) w.scrollTo(0,0); if(window.scrollTo) window.scrollTo(0,0);
     capUpdateProgress();
@@ -3553,9 +3556,9 @@ window.CRM = (function(){
     }).catch(function(){ toast('Could not delete on the device.'); });
   }
   function capClear(){ capSource='manual'; CAP.editingId=null; CAP.chips={}; CAP.exporters={}; CAP.importers={}; CAP.signals={}; CAP.scanned={}; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; CAP.cardDirty=false; CAP.groupDirty=false; capRenderGroupChip();
-    ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','importer_other','exporter_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
+    ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','importer_other','exporter_other','followup_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
     var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on,.opt-tile.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
-    ['cap_products_other','cap_importer_other','cap_exporter_other'].forEach(function(id){ var o=$(id); if(o) o.style.display='none'; }); capRenderPhotoChip(); capBusyDone(); capUpdateProgress(); }
+    ['cap_products_other','cap_importer_other','cap_exporter_other','cap_followup_other'].forEach(function(id){ var o=$(id); if(o) o.style.display='none'; }); capRenderPhotoChip(); capBusyDone(); capUpdateProgress(); }
   function capSetCampaign(id){
     if(id===CAP.campaignId){ return; }
     /* a half-typed capture would otherwise be stamped to the newly-selected campaign on Save */
@@ -3669,6 +3672,7 @@ window.CRM = (function(){
       +row('Trade countries', rp.trade_countries)
       +row('Annual quantity', rp.annual_quantity)
       +row('Follow-up actions', fu)
+      +row('Follow-up · other', rp.followup_other)
       +row('Notes', r.notes)
       +'<div class="l-formact" style="margin-top:14px">'+(own?'<button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button><button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button>':'')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
       +'</div>';
@@ -3737,7 +3741,9 @@ window.CRM = (function(){
   function capUnmark(el){ if(el&&el.classList) el.classList.remove('scanned'); capUpdateProgress(); }
   function capTagsHtml(){ return CAP_TAGS.map(function(t){ return '<button type="button" class="captag" data-tag="'+esc(t)+'" onclick="CRM.capQuickTag(this)">'+esc(t)+'</button>'; }).join(''); }
   function capFollowupsHtml(){ return CAP_FOLLOWUPS.map(function(o){ return '<button type="button" class="opt-tile'+(CAP.followups[o[0]]?' on':'')+'" data-fu="'+o[0]+'" onclick="CRM.capToggleFollowup(this)"><span class="tk">✓</span>'+esc(o[1])+'</button>'; }).join(''); }
-  function capToggleFollowup(btn){ var k=btn.getAttribute('data-fu'); CAP.followups[k]=!CAP.followups[k]; btn.classList.toggle('on',!!CAP.followups[k]); capUpdateProgress(); }
+  function capToggleFollowup(btn){ var k=btn.getAttribute('data-fu'); CAP.followups[k]=!CAP.followups[k]; btn.classList.toggle('on',!!CAP.followups[k]);
+    if(k==='other'){ var o=$('cap_followup_other'); if(o){ o.style.display=CAP.followups[k]?'block':'none'; if(CAP.followups[k]) o.focus(); else o.value=''; } }
+    capUpdateProgress(); }
   /* notes: an inline field + a full-screen pad share one value (mirrored both ways) */
   function capActiveNotes(){ return $(CAP.notesOverlay?'cap_notes_big':'cap_notes'); }
   function capNotesMirror(from){ var a=$('cap_notes'),b=$('cap_notes_big'); if(a&&b){ if(from==='big') a.value=b.value; else b.value=a.value; } capUpdateProgress(); }
@@ -3852,7 +3858,8 @@ window.CRM = (function(){
         +'<div class="hint" style="margin-top:4px">Tip: tap <b>⤢ Expand</b> for a full-screen pad, or use your keyboard mic to dictate.</div></div>'
       /* ⑥ follow-up */
       +capStage('6','Follow-up actions','what we owe this lead')
-      +'<div class="fg"><div class="opt-tiles" id="cap_followups">'+capFollowupsHtml()+'</div></div>'
+      +'<div class="fg"><div class="opt-tiles" id="cap_followups">'+capFollowupsHtml()+'</div>'
+        +'<input class="form-input" id="cap_followup_other" autocomplete="off" placeholder="Other follow-up — what do we owe them?" style="display:none;margin-top:8px" oninput="CRM.capUnmark(this)"/></div>'
       +'<div class="gset cap-actions" style="align-items:center"><button class="btn btn-primary" id="cap_savebtn" style="flex:1" onclick="CRM.capSave()">'+(CAP.editingId?'Update lead':'Save &amp; capture next')+'</button><button class="btn btn-secondary" onclick="'+(CAP.editingId?'CRM.capCancelEdit()':'CRM.capClear()')+'">'+(CAP.editingId?'Cancel edit':'Clear')+'</button></div>'
       +'</div>';
     var list='<div class="card">'
