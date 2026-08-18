@@ -97,6 +97,20 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .boot-card{background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:26px 30px;max-width:380px;box-shadow:0 18px 50px rgba(0,0,0,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .boot-btn{display:inline-block;margin-top:16px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;padding:9px 18px;border-radius:8px;text-decoration:none}
 .boot-btn:hover{background:var(--accent2)}
+/* In-app sign-in gate (Show Mode PWA): email/password on the same shared session so the
+   installed app opens straight into Show Mode instead of bouncing through Workspace. */
+.boot-inp{width:100%;margin-top:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:11px 13px;color:#f4f1e8;font-size:16px;outline:none;text-align:left}
+.boot-inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(124,77,255,.25)}
+.boot-inp::placeholder{color:#726a86}
+.boot-inp:disabled{opacity:.6}
+.boot-signin{width:100%;margin-top:14px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;padding:12px;border:none;border-radius:9px;cursor:pointer}
+.boot-signin:hover{background:var(--accent2)}
+.boot-signin:disabled{opacity:.55;cursor:default}
+.boot-err{margin-top:10px;color:#ff9d9d;font-size:12px;line-height:1.5}
+.boot-forgot{display:inline-block;margin-top:12px;color:#b9a6ff;font-size:12px;text-decoration:none}
+.boot-forgot:hover{text-decoration:underline}
+.boot-ws{display:block;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);color:#8f86a8;font-size:11px;text-decoration:none}
+.boot-ws:hover{color:#b9a6ff}
 
 /* ═══════════════ PEWTER RESKIN of the CRM island ═══════════════
    crm.js is fully CSS-variable-driven, so we override its .crmv vars here rather
@@ -1033,13 +1047,44 @@ function Boot(props){
     ce('div',{className:'boot-sub'},props.msg||'Loading…')
   );
 }
+/* Map a Supabase auth error to a human line without leaking internals. */
+function friendlyAuthError(e){
+  var m=((e&&e.message)||'').toLowerCase();
+  if(m.indexOf('invalid login')>-1||m.indexOf('credentials')>-1) return 'Incorrect email or password.';
+  if(m.indexOf('email not confirmed')>-1) return 'Your email is not confirmed yet. Contact an administrator.';
+  if(m.indexOf('rate')>-1) return 'Too many attempts. Wait a moment and try again.';
+  return (e&&e.message)||'Sign-in failed. Please try again.';
+}
 function Gate(props){
+  var sEmail=useState(''), email=sEmail[0], setEmail=sEmail[1];
+  var sPw=useState(''), pw=sPw[0], setPw=sPw[1];
+  var sBusy=useState(false), busy=sBusy[0], setBusy=sBusy[1];
+  var sErr=useState(''), err=sErr[0], setErr=sErr[1];
+  function submit(e){
+    if(e&&e.preventDefault) e.preventDefault();
+    if(busy) return;
+    var em=(email||'').trim();
+    if(!em||!pw){ setErr('Enter your email and password.'); return; }
+    setBusy(true); setErr('');
+    /* Same shared client / storageKey — writes the one shared session, never a new client. */
+    supabase.auth.signInWithPassword({email:em,password:pw}).then(function(res){
+      if(res.error){ setBusy(false); setErr(friendlyAuthError(res.error)); return; }
+      /* Hand back to App: re-run the boot chain (role/season) which lands on #capture. */
+      props.onSignedIn&&props.onSignedIn();
+    }).catch(function(){ setBusy(false); setErr('Could not reach the server. Please retry.'); });
+  }
+  var canLogin=props.canLogin;
   return ce('div',{className:'boot'},
-    ce('div',{className:'boot-card'},
+    ce('form',{className:'boot-card',onSubmit:submit},
       ce('span',{className:'boot-mark',style:{margin:'0 auto 14px'},'aria-hidden':'true',dangerouslySetInnerHTML:{__html:SYMBOL_SVG}}),
       ce('div',{className:'boot-logo',style:{fontSize:22}},'Dal',ce('span',{className:'os'},'OS'),' Commercial'),
-      ce('div',{className:'boot-sub',style:{marginTop:12,lineHeight:1.6}},props.msg),
-      props.showSignIn&&ce('a',{className:'boot-btn',href:WORKSPACE_URL},'Go to DalOS Workspace')
+      ce('div',{className:'boot-sub',style:{marginTop:canLogin?10:12,lineHeight:1.6}},props.msg),
+      canLogin&&ce('input',{key:'em',className:'boot-inp',type:'email',placeholder:'you@daltexcorp.com',autoComplete:'username',autoCapitalize:'none',spellCheck:false,value:email,disabled:busy,onChange:function(e){setEmail(e.target.value);}}),
+      canLogin&&ce('input',{key:'pw',className:'boot-inp',type:'password',placeholder:'Password',autoComplete:'current-password',value:pw,disabled:busy,onChange:function(e){setPw(e.target.value);}}),
+      canLogin&&err&&ce('div',{key:'er',className:'boot-err'},err),
+      canLogin&&ce('button',{key:'bt',className:'boot-signin',type:'submit',disabled:busy},busy?'Signing in…':'Sign in'),
+      canLogin&&ce('a',{key:'fg',className:'boot-forgot',href:WORKSPACE_URL},'Forgot password?'),
+      (canLogin||props.showSignIn)&&ce('a',{key:'ws',className:'boot-ws',href:WORKSPACE_URL},'Open the full DalOS Workspace instead →')
     )
   );
 }
@@ -1066,12 +1111,15 @@ function App(){
   var sState=useState({phase:'boot',msg:'Signing in…'});
   var state=sState[0], setState=sState[1];
 
-  React.useEffect(function(){
+  /* Boot chain: resolve the shared session → role/season → ready. Also re-run after an
+     in-gate sign-in; the URL hash (e.g. #capture from the installed PWA) is untouched, so
+     CRMHost's mount effect deep-links straight into Show Mode. */
+  function bootstrap(){
     touchActivity();
     supabase.auth.getSession().then(function(res){
       var session=res.data&&res.data.session;
       if(!session||!session.user){
-        setState({phase:'gate',msg:'You are not signed in. Sign in through DalOS Workspace, then reopen Commercial.',showSignIn:true});
+        setState({phase:'gate',msg:'Sign in to open DalOS Commercial.',canLogin:true});
         return;
       }
       var authUser=session.user;
@@ -1102,9 +1150,10 @@ function App(){
         setState({phase:'gate',msg:'Could not verify your account. Please retry.',showSignIn:false});
       });
     }).catch(function(){
-      setState({phase:'gate',msg:'Could not reach the server. Please retry.',showSignIn:true});
+      setState({phase:'gate',msg:'Could not reach the server. Sign in to retry.',canLogin:true});
     });
-  },[]);
+  }
+  React.useEffect(bootstrap,[]);
 
   /* Fade the pre-mount branded splash once we've resolved to the app or a gate screen —
      but keep it up for ~1.5s min so the loading animation plays at least one full cycle
@@ -1119,7 +1168,7 @@ function App(){
   },[state.phase]);
 
   if(state.phase==='boot') return ce(Boot,{msg:state.msg});
-  if(state.phase==='gate') return ce(Gate,{msg:state.msg,showSignIn:state.showSignIn});
+  if(state.phase==='gate') return ce(Gate,{msg:state.msg,showSignIn:state.showSignIn,canLogin:state.canLogin,onSignedIn:function(){ setState({phase:'boot',msg:'Signing in…'}); bootstrap(); }});
   return ce(CRMHost,{currentUser:state.currentUser,isAdmin:state.isAdmin,perms:state.perms,config:state.config,seasonId:state.seasonId});
 }
 
