@@ -2538,6 +2538,14 @@ window.CRM = (function(){
       capturedAt:r.captured_at, capturedBy:r.captured_by, age:lmAge(r.captured_at), raw:r};
   }
   function lmById(id){ for(var i=0;i<LM.rows.length;i++) if(LM.rows[i].id===id) return LM.rows[i]; return null; }
+  /* A leads-list load should only re-render views that actually show LM.rows. The Show Mode
+     CAPTURE sub-view (LSUB.leads==='cap') renders its own form + a campaign roster (capLoadCampaign),
+     so re-rendering it here would rebuild the form and WIPE an in-progress OCR/QR prefill. */
+  function lmNeedsRender(){
+    if(currentTab==='inbox'||currentTab==='funnel') return true;
+    if(currentTab==='leads') return LSUB.leads!=='cap';
+    return false;
+  }
   function lmLoad(){
     if(!SB){ LM.loaded=true; return; }
     LM.loading=true;
@@ -2546,8 +2554,8 @@ window.CRM = (function(){
       var res=r[1]; LM.loading=false; LM.loaded=true;
       if(res&&res.error) toast('<b>Could not load leads.</b> '+esc(res.error.message||''));
       else LM.rows=((res&&res.data)||[]).map(lmMap);
-      if(currentTab==='leads'||currentTab==='inbox'||currentTab==='funnel') render();
-    }).catch(function(){ LM.loading=false; LM.loaded=true; if(currentTab==='leads'||currentTab==='inbox'||currentTab==='funnel') render(); });
+      if(lmNeedsRender()) render();
+    }).catch(function(){ LM.loading=false; LM.loaded=true; if(lmNeedsRender()) render(); });
   }
   function lmEnsure(){ if(!LM.loaded && !LM.loading) lmLoad(); }
   function lmReload(){ LM.loaded=false; LM.loading=false; lmLoad(); }
