@@ -144,7 +144,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8"></script>
-<script src="crm.js?cb=44"></script>
+<script src="crm.js?cb=45"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -956,8 +956,16 @@ function CRMHost(props){
     if(badgeCount) kids.push(ce('span',{key:'badge',className:'nav-badge'},badgeCount>99?'99+':String(badgeCount)));
     return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},kids);
   }
-  function goTab(id){ if(window.CRM&&window.CRM.setTab) window.CRM.setTab(id); setMobNav(false); }
-  function goLead(item){ if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); setMobNav(false); }
+  /* guard against leaving a half-filled Show Mode capture via the sidebar (refresh/close is covered by beforeunload) */
+  function capLeaveOk(toCap){
+    var leavingCap = (tab==='leads' && leadKey==='cap');
+    if(leavingCap && !toCap && window.CRM && window.CRM.captureDirty && window.CRM.captureDirty()){
+      return window.confirm('You have an unsaved capture. Leave and lose it?');
+    }
+    return true;
+  }
+  function goTab(id){ if(!capLeaveOk(false)) return; if(window.CRM&&window.CRM.setTab) window.CRM.setTab(id); setMobNav(false); }
+  function goLead(item){ if(!capLeaveOk(item&&item.dest==='leads'&&item.key==='cap')) return; if(window.CRM&&window.CRM.leadNav) window.CRM.leadNav(item.dest,item.key); setMobNav(false); }
   return ce(React.Fragment,null,
     ce('div',{className:'crmv',style:{display:'flex',height:'100vh',overflow:'hidden'}},
       /* Mobile menu button + backdrop (hidden on desktop via CSS) */

@@ -3139,9 +3139,22 @@ window.CRM = (function(){
       document.addEventListener('focusin',function(e){ if(capIsActive() && isField(e.target)) setKb(true); });
       document.addEventListener('focusout',function(){ setTimeout(function(){ if(!isField(document.activeElement)) setKb(false); },150); });
     }
+    /* warn before refresh / close / hard-navigation while a capture is half-filled (in-app nav is guarded in the host's goTab/goLead) */
+    if(!CAP._beforeBound){ CAP._beforeBound=true;
+      window.addEventListener('beforeunload',function(e){ if(capIsActive() && capDirty()){ e.preventDefault(); e.returnValue=''; return ''; } });
+    }
   }
   /* the Show Mode pane is the active view — used to avoid polling/re-rendering the roster in the background */
   function capIsActive(){ return currentTab==='leads' && LSUB.leads==='cap'; }
+  /* true when the capture form has unsaved user input (any field, chip, photo, or an in-progress edit) */
+  function capDirty(){
+    if(CAP.editingId || CAP.cardData || CAP.groupData) return true;
+    var maps=[CAP.chips,CAP.exporters,CAP.importers,CAP.signals,CAP.followups], i, k;
+    for(i=0;i<maps.length;i++){ for(k in maps[i]){ if(maps[i][k]) return true; } }
+    var ids=['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','importer_other','exporter_other','followup_other','notes'];
+    for(i=0;i<ids.length;i++){ var el=$('cap_'+ids[i]); if(el&&(el.value||'').trim()) return true; }
+    return false;
+  }
   /* Campaign-wide roster: everyone's captures for the selected campaign, via a SECURITY DEFINER
      RPC (a commercial rep can't SELECT their own region-less captures directly under RLS).
      Only re-renders when the row set actually changed, so a scrolled roster doesn't jump every poll. */
@@ -4105,7 +4118,7 @@ window.CRM = (function(){
   /* ── supporting pictures (up to 3, stored as resized data URLs in crm_campaigns.media) ── */
   function campRenderMedia(){ var pv=$('camp_media_pv'); if(!pv) return; var m=CAMP.media||[];
     var html=m.map(function(src,i){ return '<div style="position:relative">'
-      +'<img src="'+src+'" style="height:70px;width:70px;object-fit:cover;border-radius:9px;border:1px solid var(--border);cursor:zoom-in" onclick="window.open(this.src,\'_blank\')"/>'
+      +'<img src="'+src+'" style="height:70px;width:70px;object-fit:cover;border-radius:9px;border:1px solid var(--border);cursor:zoom-in" onclick="CRM.campLightbox(this.src)"/>'
       +'<span role="button" title="Remove" onclick="CRM.campMediaClear('+i+')" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;line-height:18px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:50%;cursor:pointer;font-size:12px;color:var(--red)">✕</span></div>'; }).join('');
     if(m.length<3){ html+='<label class="capbtn" style="height:70px;width:70px;align-items:center;justify-content:center;cursor:pointer;position:relative;padding:0">'
       +'<span class="capt" style="font-size:24px;line-height:1;color:var(--text3)">+</span>'
@@ -4127,6 +4140,47 @@ window.CRM = (function(){
     rd.readAsDataURL(f);
   }
   function campMediaClear(i){ CAMP.media=(CAMP.media||[]).filter(function(_,j){ return j!==i; }); campRenderMedia(); }
+  /* full-screen picture viewer — reused by the view + edit galleries (data-URI safe, unlike window.open) */
+  function campLightbox(src){
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(8,12,20,.93);display:flex;align-items:center;justify-content:center;padding:24px;cursor:zoom-out';
+    var im=document.createElement('img'); im.src=src; im.style.cssText='max-width:94vw;max-height:92vh;border-radius:10px;box-shadow:0 24px 70px rgba(0,0,0,.6)'; ov.appendChild(im);
+    function close(){ if(ov.parentNode) ov.parentNode.removeChild(ov); document.removeEventListener('keydown',onKey); }
+    function onKey(e){ if(e.key==='Escape') close(); }
+    ov.addEventListener('click',close); document.addEventListener('keydown',onKey);
+    document.body.appendChild(ov);
+  }
+  /* read-only campaign detail (with an Edit button + a comfortable picture gallery) */
+  function campView(id){
+    var c=(CAMP.items||[]).filter(function(x){return x.id===id;})[0]; if(!c) return;
+    var lt=campLocalToday(c.timezone);
+    var stateLbl=c.active?'Live':(c.auto_schedule&&c.start_date&&lt<c.start_date?'Scheduled':(c.auto_schedule&&c.end_date&&lt>c.end_date?'Ended':'Off'));
+    var pill=c.active?'<span class="badge badge-pass">Live</span>':(stateLbl==='Scheduled'?'<span class="badge badge-n">Scheduled</span>':(stateLbl==='Ended'?'<span class="badge badge-warn">Ended</span>':'<span class="badge badge-n">Off</span>'));
+    var dates=(c.start_date||'')+(c.end_date?' → '+c.end_date:''); if(!c.start_date&&!c.end_date) dates='—';
+    var sym=campCurSym(c.currency); var link=campLink(c.public_token);
+    var row=function(k,v){ if(v==null||v===''||v==='—') v='—'; return '<div class="l-drow"><span class="cell-sub">'+k+'</span><span>'+v+'</span></div>'; };
+    var body='<div class="l-form"><div class="l-qhdr">'+esc(c.name)+' &nbsp;'+pill+'</div>'
+      +(c.logo_url?'<div style="margin:4px 0 10px"><img src="'+esc(c.logo_url)+'" style="max-height:48px;max-width:150px;background:#fff;border-radius:6px;padding:4px;border:1px solid var(--border)"/></div>':'')
+      +row('Type', esc(c.type||'—'))
+      +row('Status', esc(stateLbl)+(stateLbl==='Scheduled'&&c.start_date?' <span class="cell-sub">· opens '+esc(c.start_date)+'</span>':(stateLbl==='Ended'&&c.end_date?' <span class="cell-sub">· closed after '+esc(c.end_date)+'</span>':'')))
+      +row('Dates', esc(dates))
+      +row('Location', c.location?esc(c.location):'—')
+      +row('Time zone', esc(c.timezone||'—'))
+      +row('Cost', c.cost!=null?esc(sym+Number(c.cost).toLocaleString()):'—')
+      +row('Leads', String(Number(c.lead_count||0)))
+      +row('Public link', '<span class="mono" style="word-break:break-all;font-size:12px">'+esc(link)+'</span> <span class="link-btn" onclick="CRM.campCopy(\''+esc(c.public_token)+'\')">Copy</span>')
+      +'<label class="form-label" style="margin-top:12px">Supporting pictures</label>'
+      +'<div id="campview_media" class="cell-sub" style="margin-top:4px">Loading…</div>'
+      +'<div class="l-formact" style="margin-top:14px"><button class="btn btn-primary" onclick="CRM.campNew(\''+id+'\')">Edit</button><button class="btn btn-secondary" onclick="CRM.campQr(\''+id+'\')">Link · QR</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div></div>';
+    showDlv('Campaign', body);
+    if(SB) SB.from('crm_campaigns').select('media').eq('id',id).single().then(function(res){
+      var el=$('campview_media'); if(!el) return;
+      var m=(res&&res.data&&Array.isArray(res.data.media))?res.data.media:[];
+      if(!m.length){ el.textContent='No pictures added.'; return; }
+      el.className=''; el.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:6px';
+      el.innerHTML=m.map(function(src){ return '<img src="'+src+'" style="width:100%;height:118px;object-fit:cover;border-radius:10px;border:1px solid var(--border);cursor:zoom-in" onclick="CRM.campLightbox(this.src)"/>'; }).join('');
+    }).catch(function(){ var el=$('campview_media'); if(el) el.textContent='Could not load pictures.'; });
+  }
   function campNew(id){
     CAMP.editId=id||null; CAMP.logoData=null; CAMP.media=[];
     var c=id?CAMP.items.filter(function(x){return x.id===id;})[0]:null;
@@ -4289,12 +4343,13 @@ window.CRM = (function(){
         :'<span class="badge badge-n" title="'+(c.auto_schedule?'':'Manually off')+'">Off</span>';
       var logo=c.logo_url?'<img src="'+esc(c.logo_url)+'" style="height:26px;max-width:70px;border-radius:4px;background:#fff;padding:2px;vertical-align:middle"/>':'<span class="cell-sub">—</span>';
       var acts='<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">'
+        +'<button class="btn btn-secondary btn-sm" onclick="CRM.campView(\''+c.id+'\')">View</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campQr(\''+c.id+'\')">Link · QR</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campCopy(\''+esc(c.public_token)+'\')">Copy</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campNew(\''+c.id+'\')">Edit</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campToggle(\''+c.id+'\','+(c.active?'false':'true')+')">'+(c.active?'Deactivate':(ended?'Reactivate':'Activate'))+'</button>'
         +'</div>';
-      return '<tr'+(c.active?'':' style="opacity:.62"')+'><td>'+logo+'</td><td><b>'+esc(c.name)+'</b>'+(c.location?'<div class="cell-sub">📍 '+esc(c.location)+'</div>':'')+(c.media_count?'<div class="cell-sub">🖼 '+c.media_count+' picture'+(c.media_count>1?'s':'')+'</div>':'')+'</td><td>'+bdg('badge-n',c.type||'—')+'</td><td class="mono">'+esc(dates)+'</td><td class="mono">'+(c.cost!=null?sym+Number(c.cost).toLocaleString():'—')+'</td><td class="mono">'+Number(c.lead_count||0)+'</td><td>'+pill+'</td><td>'+acts+'</td></tr>';
+      return '<tr'+(c.active?'':' style="opacity:.62"')+'><td>'+logo+'</td><td><b style="cursor:pointer" title="View campaign" onclick="CRM.campView(\''+c.id+'\')">'+esc(c.name)+'</b>'+(c.location?'<div class="cell-sub">📍 '+esc(c.location)+'</div>':'')+(c.media_count?'<div class="cell-sub">🖼 '+c.media_count+' picture'+(c.media_count>1?'s':'')+'</div>':'')+'</td><td>'+bdg('badge-n',c.type||'—')+'</td><td class="mono">'+esc(dates)+'</td><td class="mono">'+(c.cost!=null?sym+Number(c.cost).toLocaleString():'—')+'</td><td class="mono">'+Number(c.lead_count||0)+'</td><td>'+pill+'</td><td>'+acts+'</td></tr>';
     }).join('');
     if(!items.length) rows='<tr><td colspan="8" class="cell-sub" style="padding:16px;text-align:center">No campaigns yet. Create one to generate a stand QR.</td></tr>';
     vc.innerHTML='<div class="lead-portal">'
@@ -4586,9 +4641,9 @@ window.CRM = (function(){
     capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
     capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall, capRemovePhoto:capRemovePhoto,
-    capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup, capSignal:capSignal, capUnmark:capUnmark, capEditLoad:capEditLoad, capDelete:capDelete, capCancelEdit:capCancelEdit,
+    capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup, capSignal:capSignal, capUnmark:capUnmark, capEditLoad:capEditLoad, capDelete:capDelete, capCancelEdit:capCancelEdit, captureDirty:capDirty,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
-    campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campMediaPick:campMediaPick, campMediaClear:campMediaClear, campRefresh:campRefresh
+    campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campMediaPick:campMediaPick, campMediaClear:campMediaClear, campView:campView, campLightbox:campLightbox, campRefresh:campRefresh
   };
 })();
 /* ── CRM island CSS (scoped to .crmv) — injected once ── */
