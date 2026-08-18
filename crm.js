@@ -3203,7 +3203,7 @@ window.CRM = (function(){
     [['company','company'],['name','contact'],['role','role'],['email','email'],['phone','phone'],['website','website'],['country','country'],['address','address']].forEach(function(p){
       if(f[p[0]]){ var el=$('cap_'+p[1]); if(el){ el.value=f[p[0]]; el.classList.add('scanned'); CAP.scanned[p[1]]=true; } }
     });
-    /* all fields are inline now — nothing to expand */
+    if(typeof capUpdateProgress==='function') capUpdateProgress();   /* reflect the auto-filled fields in the stage rail */
   }
 
   function capParseVcard(t){
@@ -3251,7 +3251,9 @@ window.CRM = (function(){
       if(/^[A-Z]/.test(l)){ name=l; break; }
     }
     f.name=name;
-    var wm=joined.match(/((?:https?:\/\/)?www\.[\w.-]+\.[a-z]{2,})/i); if(wm) f.website=wm[1].replace(/^https?:\/\//i,'');
+    var wm=joined.match(/((?:https?:\/\/)?(?:www\.)?[\w-]+\.(?:com|net|org|de|fr|it|es|nl|be|co|eu|uk|ae|sa|eg)\b(?:\.[a-z]{2})?)/i);
+    if(wm){ var site=wm[1].replace(/^https?:\/\//i,''); if(!/@/.test(site) && site!==(f.email.split('@')[1]||'')) f.website=site; }
+    if(!f.website && f.email){ var edom=f.email.split('@')[1]||''; if(edom && !/(gmail|yahoo|hotmail|outlook|icloud|gmx|web\.de|live)/i.test(edom)) f.website='www.'+edom; }
     return f;
   }
 
@@ -3292,8 +3294,9 @@ window.CRM = (function(){
       +'<button class="btn btn-secondary" onclick="CRM.capScanCancel()">Cancel</button></div>';
   }
 
-  function capAttachPhoto(file){
-    /* resize + keep the card/badge photo on the lead for documentation (saved even if OCR fails) */
+  function capAttachPhoto(file,done){
+    /* resize + keep the card/badge photo on the lead for documentation (saved even if OCR fails).
+       done(dataUrl) fires after the photo is stored, so OCR can reuse the same resized image. */
     var rd=new FileReader();
     rd.onload=function(ev){ var img=new Image();
       img.onload=function(){ var max=1400, w=img.width, h=img.height, sc=Math.min(1,max/Math.max(w,h)); w=Math.round(w*sc); h=Math.round(h*sc);
@@ -3301,8 +3304,9 @@ window.CRM = (function(){
         try{ CAP.cardData=cv.toDataURL('image/jpeg',0.72); }catch(e){ CAP.cardData=ev.target.result; }
         CAP.cardDirty=true;
         capRenderPhotoChip();
+        if(done) try{ done(CAP.cardData); }catch(e){}
       };
-      img.onerror=function(){}; img.src=ev.target.result;
+      img.onerror=function(){ if(done) try{ done(CAP.cardData||ev.target.result); }catch(e){} }; img.src=ev.target.result;
     };
     rd.readAsDataURL(file);
   }
@@ -3336,21 +3340,67 @@ window.CRM = (function(){
   function capOcrPick(input){
     var file=input&&input.files&&input.files[0]; if(!file){ return; }
     input.value='';
-    capAttachPhoto(file);                 /* always save the photo for documentation */
     capSource='ocr_card';
-    toast('Photo attached — reading text…');
-    /* Tesseract's LIBRARY is self-hosted (lib/tesseract.min.js), but its worker + wasm core + eng
-       traineddata (~15 MB) still load lazily from CDN at recognize() time. The service worker
-       runtime-caches those on the FIRST online OCR, so later OCR works offline too. If they can't
-       load (offline, never cached), fail gracefully — the QR scan + manual entry always work. */
-    capLoadScript('lib/tesseract.min.js').then(function(){
-      if(!window.Tesseract) throw new Error('OCR engine unavailable');
-      return window.Tesseract.recognize(file,'eng');   /* on-device fallback; cloud OCR is the accuracy upgrade */
+    toast('Photo attached — reading the card…');
+    /* save the photo, then read it: vision-LLM edge function first (best on designed cards),
+       on-device Tesseract as the offline / not-configured fallback. */
+    capAttachPhoto(file,function(durl){ capOcrRun(durl); });
+  }
+  /* returns the fields object if the cloud vision-LLM read the card, else null (so we fall back) */
+  function capOcrCloud(durl){
+    return new Promise(function(res){
+      try{
+        if(!durl || !CAP.online || !SB || !SB.functions || !SB.functions.invoke){ res(null); return; }
+        SB.functions.invoke('capture-card-ocr',{body:{image:durl}}).then(function(r){
+          var d=r&&r.data;
+          if(d&&d.ok&&d.fields){ res({ company:d.fields.company, name:d.fields.contact, role:d.fields.role, email:d.fields.email, phone:d.fields.phone, website:d.fields.website, country:d.fields.country, address:d.fields.address }); }
+          else res(null);   /* ocr_not_configured / empty / upstream error → Tesseract */
+        }, function(){ res(null); });
+      }catch(e){ res(null); }
+    });
+  }
+  /* on-device fallback: preprocess (grayscale + contrast + upscale) → Tesseract → heuristic parse */
+  function capOcrLocal(durl){
+    return capLoadScript('lib/tesseract.min.js').then(function(){
+      if(!window.Tesseract) throw new Error('no engine');
+      return capOcrPreprocess(durl);
+    }).then(function(img){
+      return window.Tesseract.recognize(img,'eng');
     }).then(function(res){
       var f=capParseOcr((res&&res.data&&res.data.text)||'');
-      if(!f.email && !f.company && !f.name){ toast('Photo saved. Couldn’t read the text — scan the QR or type the 5 fields.'); return; }
+      if(!f.email && !f.company && !f.name){ toast('Photo saved. Couldn’t read the card — scan the QR or type the fields.'); return; }
       capPrefill(f); toast('Photo saved &amp; text read — check the fields, then Save.');
-    }).catch(function(){ toast(CAP.online?'Photo saved. Card OCR is unavailable right now — scan the QR or type the 5 fields.':'Photo saved. <b>Card OCR needs a signal</b> — scan the QR or type the 5 fields.'); });
+    }).catch(function(){ toast(CAP.online?'Photo saved. Card read unavailable — scan the QR or type the fields.':'Photo saved. <b>Card read needs a signal</b> — scan the QR or type the fields.'); });
+  }
+  function capOcrRun(durl){
+    capOcrCloud(durl).then(function(f){
+      if(f && (f.email||f.company||f.name)){ capPrefill(f); toast('Read from the card by AI — check the fields, then Save.'); return; }
+      return capOcrLocal(durl);
+    }).catch(function(){ capOcrLocal(durl); });
+  }
+  /* upscale small cards + grayscale + contrast stretch — big Tesseract accuracy win over the raw photo */
+  function capOcrPreprocess(durl){
+    return new Promise(function(resolve){
+      try{
+        var img=new Image();
+        img.onload=function(){
+          var scale=Math.min(2, Math.max(1, 1600/Math.max(img.width,img.height)));
+          var w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+          var cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+          var ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+          try{
+            var d=ctx.getImageData(0,0,w,h), a=d.data, i, g;
+            for(i=0;i<a.length;i+=4){ g=(a[i]*0.299+a[i+1]*0.587+a[i+2]*0.114);
+              g=(g-128)*1.35+140; if(g<0)g=0; else if(g>255)g=255;   /* contrast stretch + slight lift */
+              a[i]=a[i+1]=a[i+2]=g; }
+            ctx.putImageData(d,0,0);
+          }catch(e){}
+          resolve(cv);
+        };
+        img.onerror=function(){ resolve(durl); };
+        img.src=durl;
+      }catch(e){ resolve(durl); }
+    });
   }
   function capField(id){ var el=$('cap_'+id); return el?(el.value||'').trim():''; }
   function capSave(){
