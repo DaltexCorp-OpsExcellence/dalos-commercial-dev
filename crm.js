@@ -3007,16 +3007,17 @@ window.CRM = (function(){
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):bdg('badge-warn','unassigned'))+'</td>'
         +'<td>'+esc(l.product)+'</td>'
         +'<td>'+bdg('badge-n',lmSourceLabel(l.source))+'</td>'
+        +'<td>'+(l.campaign?esc(l.campaign):'<span class="cell-sub">—</span>')+'</td>'
         +'<td class="mono">'+esc(l.band||'—')+'</td>'
         +'<td>'+lmStageBadge(l)+'</td>'
         +'<td class="mono">'+esc(l.age)+'</td></tr>';
     }).join('');
-    if(!list.length) rows='<tr><td colspan="9" class="cell-sub" style="padding:16px;text-align:center">No leads match. Captures from Show Mode and the public form land here.</td></tr>';
+    if(!list.length) rows='<tr><td colspan="10" class="cell-sub" style="padding:16px;text-align:center">No leads match. Captures from Show Mode and the public form land here.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
       +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> '+(lmRegionScoped()?'Leads in your region(s)':'All leads')+' · '+list.length
       +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.lmImportOpen()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.lmNewOpen()">+ New lead</button></span></div>'
       +filters
-      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
+      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Campaign</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
   }
   function kcard(l,v,s){ return '<div class="card"><div class="kpi-l">'+l+'</div><div class="kpi-v">'+v+'</div><div class="kpi-s">'+(s||'')+'</div></div>'; }
 
@@ -3972,10 +3973,10 @@ window.CRM = (function(){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'</td>'
         +'<td>'+owner+byline+'</td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'—')+'</td>'
-        +'<td>'+esc(l.product)+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td>'
+        +'<td>'+esc(l.product)+'</td><td>'+(l.campaign?esc(l.campaign):'<span class="cell-sub">—</span>')+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td>'
         +'<td onclick="event.stopPropagation()">'+(reassign||'<span class="cell-sub">—</span>')+'</td></tr>';
     }).join('');
-    if(!shown.length) rows='<tr><td colspan="8" class="cell-sub" style="padding:16px;text-align:center">'+(mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.')+'</td></tr>';
+    if(!shown.length) rows='<tr><td colspan="9" class="cell-sub" style="padding:16px;text-align:center">'+(mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.')+'</td></tr>';
     /* assignment filter — managers only (a rep only ever sees themselves) */
     var asgKeys=Object.keys(asg);
     var filterSel=mgr?'<select class="form-select" style="width:auto" onchange="CRM.lmSetPipeAsg(this.value)">'
@@ -3986,7 +3987,7 @@ window.CRM = (function(){
     var title=mgr?('Team pipeline · '+shown.length+(fil==='all'?'':' of '+full.length)+' lead(s)'):('My pipeline · '+shown.length+' lead(s) assigned to me');
     return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> '+title
       +' <span style="margin-left:auto;display:inline-flex;gap:6px;align-items:center">'+filterSel+'<button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Assigned to</th><th>Region</th><th>Product</th><th>Stage</th><th>Assigned</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Assigned to</th><th>Region</th><th>Product</th><th>Campaign</th><th>Stage</th><th>Assigned</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
   }
 
   /* ═══════════════════ FUNNEL destination ═══════════════════ */
