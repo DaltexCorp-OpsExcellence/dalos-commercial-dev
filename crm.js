@@ -3282,10 +3282,26 @@ window.CRM = (function(){
   function capHandleScan(data){
     var f=capParseVcard(data);
     if(!f.email && !f.name && !f.company && !f.phone){
-      if(f._url){ var n=$('cap_notes'); if(n) n.value=(n.value?n.value+' · ':'')+data; toast('Scanned a link — added to notes.'); return; }
+      if(f._url){ capScanFromLink(data); return; }   /* QR is just a link → try to read the page for contact data */
       toast('That code has no contact details.'); return;
     }
     capSource='qr_vcard'; capPrefill(f); toast('Prefilled from the scanned card — review &amp; save.');
+  }
+  /* QR resolved to a URL — fetch the page server-side (SSRF-guarded edge fn) and extract contact fields.
+     Falls back to the old behaviour (drop the link into notes) if the page yields nothing / offline.
+     REVERT: replace the body with the old one-liner — `var n=$('cap_notes'); if(n) n.value=(n.value?n.value+' · ':'')+data; toast('Scanned a link — added to notes.');` */
+  function capScanFromLink(url){
+    var addToNotes=function(){ var n=$('cap_notes'); if(n){ n.value=(n.value?n.value+' · ':'')+url; capUpdateProgress&&capUpdateProgress(); } toast('Scanned a link — added to notes.'); };
+    if(!CAP.online || !SB || !SB.functions || !SB.functions.invoke){ addToNotes(); return; }
+    toast('Scanned a link — reading the page…');
+    SB.functions.invoke('capture-link-extract',{body:{url:url}}).then(function(r){
+      var d=r&&r.data;
+      if(d&&d.ok&&d.fields&&(d.fields.email||d.fields.contact||d.fields.company||d.fields.phone)){
+        capSource='qr_vcard';
+        capPrefill({ company:d.fields.company, name:d.fields.contact, role:d.fields.role, email:d.fields.email, phone:d.fields.phone, website:d.fields.website, country:d.fields.country, address:d.fields.address });
+        toast('Read from the linked page — check the fields, then Save.');
+      } else { addToNotes(); }
+    }, function(){ addToNotes(); }).catch(function(){ addToNotes(); });
   }
   function capScanOverlay(){
     return '<div id="cap_scan" style="display:none;position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.86);align-items:center;justify-content:center;flex-direction:column;gap:14px">'
