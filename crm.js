@@ -4075,6 +4075,8 @@ window.CRM = (function(){
     var cost=costRaw?Number(costRaw):null; if(cost!=null&&isNaN(cost)){ if(w) w.innerHTML='<div class="alert-fail" style="margin-top:10px">Cost must be a number.</div>'; return; }
     var rec={ name:name, type:($('camp_type')||{}).value||'exhibition', currency:($('camp_cur')||{}).value||'EUR',
       start_date:start||null, end_date:end||null, cost:cost, logo_url:CAMP.logoData||null, updated_at:new Date().toISOString() };
+    /* re-arm auto-expiry: an end date today-or-later clears the marker so the daily job can auto-deactivate again at the new date */
+    if(end && end>=new Date().toISOString().slice(0,10)) rec.auto_deactivated_at=null;
     var btn=w&&w.parentNode?w.parentNode.querySelector('.btn-primary'):null; if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
     var q=CAMP.editId ? SB.from('crm_campaigns').update(rec).eq('id',CAMP.editId).select('id,public_token').single()
                       : SB.from('crm_campaigns').insert(rec).select('id,public_token').single();
@@ -4172,13 +4174,14 @@ window.CRM = (function(){
     var rows=items.map(function(c){
       var sym=campCurSym(c.currency);
       var dates=(c.start_date||'')+(c.end_date?' → '+c.end_date:''); if(!c.start_date&&!c.end_date) dates='—';
-      var pill=c.active?'<span class="badge badge-pass">Live</span>':'<span class="badge badge-n">Off</span>';
+      var ended=!c.active && c.auto_deactivated_at;   /* auto-expired after end date (vs manually paused) */
+      var pill=c.active?'<span class="badge badge-pass">Live</span>':(ended?'<span class="badge badge-warn" title="Auto-deactivated after the end date — reactivate to reopen the form">Ended</span>':'<span class="badge badge-n">Off</span>');
       var logo=c.logo_url?'<img src="'+esc(c.logo_url)+'" style="height:26px;max-width:70px;border-radius:4px;background:#fff;padding:2px;vertical-align:middle"/>':'<span class="cell-sub">—</span>';
       var acts='<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campQr(\''+c.id+'\')">Link · QR</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campCopy(\''+esc(c.public_token)+'\')">Copy</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campNew(\''+c.id+'\')">Edit</button>'
-        +'<button class="btn btn-secondary btn-sm" onclick="CRM.campToggle(\''+c.id+'\','+(c.active?'false':'true')+')">'+(c.active?'Deactivate':'Activate')+'</button>'
+        +'<button class="btn btn-secondary btn-sm" onclick="CRM.campToggle(\''+c.id+'\','+(c.active?'false':'true')+')">'+(c.active?'Deactivate':(ended?'Reactivate':'Activate'))+'</button>'
         +'</div>';
       return '<tr'+(c.active?'':' style="opacity:.62"')+'><td>'+logo+'</td><td><b>'+esc(c.name)+'</b></td><td>'+bdg('badge-n',c.type||'—')+'</td><td class="mono">'+esc(dates)+'</td><td class="mono">'+(c.cost!=null?sym+Number(c.cost).toLocaleString():'—')+'</td><td class="mono">'+Number(c.lead_count||0)+'</td><td>'+pill+'</td><td>'+acts+'</td></tr>';
     }).join('');
