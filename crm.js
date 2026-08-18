@@ -5179,7 +5179,9 @@ function injectCrmCss(){
 .crmv .cap-notes-bigta{flex:1;min-height:38vh;font-size:16px !important;line-height:1.5;resize:none}
 @media(max-width:767px){
   .crmv .cap-notes-ov{padding:0}
-  .crmv .cap-notes-ovcard{max-width:100%;height:100dvh;max-height:100dvh;border-radius:0;border:0}
+  .crmv .cap-notes-ovcard{max-width:100%;height:100dvh;max-height:100dvh;border-radius:0;border:0;padding:calc(14px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left))}
+  /* keep the Done/Bullets header tappable below the notch/status bar in installed (standalone) mode */
+  .crmv .cap-notes-ovhead{position:sticky;top:0;z-index:1;background:var(--bg);padding-bottom:6px}
   .crmv .cap-notes-bigta{min-height:0}
 }
 /* who / region pick rows (drawers) */
