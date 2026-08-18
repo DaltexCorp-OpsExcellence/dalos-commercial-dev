@@ -3934,7 +3934,7 @@ window.CRM = (function(){
   }
 
   /* ═══════════════════ CAMPAIGNS destination (REAL — crm_campaigns) ═══════════════════ */
-  var FORM_HOST='https://daltexcorp-opsexcellence.github.io/daltex-lead-form/';
+  var FORM_HOST='https://daltexcorp-opsexcellence.github.io/daltex-lead-form-dev/';   /* staging redesigned public form (CRM is staging-only; flip to daltex-lead-form on prod) */
   var CAMP={items:[],loaded:false,loading:false,logoData:null,editId:null,qrToken:null};
   var CAMP_TYPES=[['exhibition','Exhibition'],['digital','Digital'],['research','Research'],['referral','Referral'],['other','Other']];
   var CAMP_CUR=[['EUR','€ EUR'],['USD','$ USD'],['GBP','£ GBP']];
