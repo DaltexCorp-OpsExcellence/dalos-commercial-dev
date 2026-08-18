@@ -4193,8 +4193,7 @@ window.CRM = (function(){
       +field('camp_name','Event / campaign name',c?c.name:'','e.g. Fruit Logistica 2026 — Berlin')
       +'<div class="grid2"><div>'+'<label class="form-label" style="margin-top:8px">Type</label><select class="form-select" id="camp_type">'+typeOpts+'</select></div>'
       +'<div><label class="form-label" style="margin-top:8px">Currency</label><select class="form-select" id="camp_cur">'+curOpts+'</select></div></div>'
-      +'<div class="grid2"><div>'+field('camp_start','Start date',c&&c.start_date?c.start_date:'','')+'</div><div>'+field('camp_end','End date',c&&c.end_date?c.end_date:'','')+'</div></div>'
-      +'<div class="l-formhint" style="margin:-2px 0 6px">Dates accept <span class="mono">YYYY-MM-DD</span>.</div>'
+      +'<div class="grid2"><div>'+dateField('camp_start','Start date',c&&c.start_date?c.start_date:'')+'</div><div>'+dateField('camp_end','End date',c&&c.end_date?c.end_date:'')+'</div></div>'
       +'<div class="grid2"><div>'+field('camp_location','Location (optional)',c&&c.location?c.location:'','e.g. Hong Kong · AsiaWorld-Expo')+'</div>'
       +'<div><label class="form-label" style="margin-top:8px">Time zone</label><select class="form-select" id="camp_tz">'+tzOpts+'</select></div></div>'
       +'<div class="l-formhint" style="margin:-2px 0 8px">Each lead&rsquo;s day follows the event&rsquo;s time zone — so a lead captured after midnight in Hong Kong records on the new local day.</div>'
@@ -4346,7 +4345,6 @@ window.CRM = (function(){
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campView(\''+c.id+'\')">View</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campQr(\''+c.id+'\')">Link · QR</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campCopy(\''+esc(c.public_token)+'\')">Copy</button>'
-        +'<button class="btn btn-secondary btn-sm" onclick="CRM.campNew(\''+c.id+'\')">Edit</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campToggle(\''+c.id+'\','+(c.active?'false':'true')+')">'+(c.active?'Deactivate':(ended?'Reactivate':'Activate'))+'</button>'
         +'</div>';
       return '<tr'+(c.active?'':' style="opacity:.62"')+'><td>'+logo+'</td><td><b style="cursor:pointer" title="View campaign" onclick="CRM.campView(\''+c.id+'\')">'+esc(c.name)+'</b>'+(c.location?'<div class="cell-sub">📍 '+esc(c.location)+'</div>':'')+(c.media_count?'<div class="cell-sub">🖼 '+c.media_count+' picture'+(c.media_count>1?'s':'')+'</div>':'')+'</td><td>'+bdg('badge-n',c.type||'—')+'</td><td class="mono">'+esc(dates)+'</td><td class="mono">'+(c.cost!=null?sym+Number(c.cost).toLocaleString():'—')+'</td><td class="mono">'+Number(c.lead_count||0)+'</td><td>'+pill+'</td><td>'+acts+'</td></tr>';
@@ -4361,6 +4359,7 @@ window.CRM = (function(){
 
   /* ═══════════════════ drawers / actions ═══════════════════ */
   function field(id,label,val,ph){ return '<label class="form-label" style="margin-top:8px">'+esc(label)+'</label><input class="form-input" id="'+id+'" value="'+esc(val||'')+'" placeholder="'+esc(ph||'')+'"/>'; }
+  function dateField(id,label,val){ return '<label class="form-label" style="margin-top:8px">'+esc(label)+'</label><input type="date" class="form-input" id="'+id+'" value="'+esc(val||'')+'"/>'; }
   function selField(id,label,opts,val){ return '<label class="form-label" style="margin-top:8px">'+esc(label)+'</label><select class="form-select" id="'+id+'">'+opts.map(function(o){return '<option value="'+esc(o[0])+'"'+(String(val)===String(o[0])?' selected':'')+'>'+esc(o[1])+'</option>';}).join('')+'</select>'; }
 
   function leadQuickAdd(){
