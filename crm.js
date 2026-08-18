@@ -3429,6 +3429,8 @@ window.CRM = (function(){
     var imps=CAP_IMP.filter(function(v){ return CAP.importers[v]; });
     if(exps.length) extra.exporter_type=exps.join(', ');   /* multi-select → comma-joined (jsonb, back-compatible with the single-value readers) */
     if(imps.length) extra.importer_type=imps.join(', ');
+    var eo=capField('exporter_other'); if(eo && CAP.exporters['Other']) extra.exporter_other=eo;
+    var io=capField('importer_other'); if(io && CAP.importers['Other']) extra.importer_other=io;
     var sigs=CAP_TAGS.filter(function(t){ return CAP.signals[t]; });
     if(sigs.length) extra.tags=sigs;                        /* structured lead signal — queryable, not buried in notes */
     var po=capField('products_other'); if(po && CAP.chips['Other']) extra.products_other=po;
@@ -3491,6 +3493,8 @@ window.CRM = (function(){
     set('email',r.email); set('phone',r.phone); set('website',r.website); set('country',r.country); set('address',r.address);
     set('products_industries',rp.products_industries); set('trade_countries',rp.trade_countries); set('annual_quantity',rp.annual_quantity); set('notes',r.notes);
     if(rp.products_other && CAP.chips['Other']){ var o=$('cap_products_other'); if(o){ o.style.display='block'; o.value=rp.products_other; } }
+    if(rp.importer_other && CAP.importers['Other']){ var io=$('cap_importer_other'); if(io){ io.style.display='block'; io.value=rp.importer_other; } }
+    if(rp.exporter_other && CAP.exporters['Other']){ var eo=$('cap_exporter_other'); if(eo){ eo.style.display='block'; eo.value=rp.exporter_other; } }
     capRenderPhotoChip(); capRenderGroupChip();
     var w=$('viewContent'); if(w&&w.scrollTo) w.scrollTo(0,0); if(window.scrollTo) window.scrollTo(0,0);
     capUpdateProgress();
@@ -3510,9 +3514,9 @@ window.CRM = (function(){
     }).catch(function(){ toast('Could not delete on the device.'); });
   }
   function capClear(){ capSource='manual'; CAP.editingId=null; CAP.chips={}; CAP.exporters={}; CAP.importers={}; CAP.signals={}; CAP.scanned={}; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; CAP.cardDirty=false; CAP.groupDirty=false; capRenderGroupChip();
-    ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
+    ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','importer_other','exporter_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
     var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on,.opt-tile.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
-    var o=$('cap_products_other'); if(o) o.style.display='none'; capRenderPhotoChip(); capUpdateProgress(); }
+    ['cap_products_other','cap_importer_other','cap_exporter_other'].forEach(function(id){ var o=$(id); if(o) o.style.display='none'; }); capRenderPhotoChip(); capUpdateProgress(); }
   function capSetCampaign(id){
     if(id===CAP.campaignId){ return; }
     /* a half-typed capture would otherwise be stamped to the newly-selected campaign on Save */
@@ -3620,7 +3624,9 @@ window.CRM = (function(){
       +row('Other products', rp.products_other)
       +row('Products / industries', rp.products_industries)
       +row('Exporter type', rp.exporter_type)
+      +row('Exporter · other', rp.exporter_other)
       +row('Importer type', rp.importer_type)
+      +row('Importer · other', rp.importer_other)
       +row('Trade countries', rp.trade_countries)
       +row('Annual quantity', rp.annual_quantity)
       +row('Follow-up actions', fu)
@@ -3682,7 +3688,9 @@ window.CRM = (function(){
   function capToggleProd(btn){ var p=btn.getAttribute('data-prod'); CAP.chips[p]=!CAP.chips[p]; btn.classList.toggle('on',!!CAP.chips[p]); if(p==='Other'){ var o=$('cap_products_other'); if(o){ o.style.display=CAP.chips[p]?'block':'none'; if(CAP.chips[p]) o.focus(); else o.value=''; } } capUpdateProgress(); }
   function capTypeChipsHtml(kind){ var arr=kind==='exp'?CAP_EXP:CAP_IMP, map=kind==='exp'?CAP.exporters:CAP.importers; return arr.map(function(v){ return '<button type="button" class="opt-tile'+(map[v]?' on':'')+'" data-k="'+kind+'" data-v="'+esc(v)+'" onclick="CRM.capType(this)"><span class="tk">✓</span>'+esc(v)+'</button>'; }).join(''); }
   /* multi-select: a company can be more than one type (retailer AND wholesaler) */
-  function capType(btn){ var k=btn.getAttribute('data-k'), v=btn.getAttribute('data-v'); var map=k==='exp'?CAP.exporters:CAP.importers; map[v]=!map[v]; btn.classList.toggle('on',!!map[v]); capUpdateProgress(); }
+  function capType(btn){ var k=btn.getAttribute('data-k'), v=btn.getAttribute('data-v'); var map=k==='exp'?CAP.exporters:CAP.importers; map[v]=!map[v]; btn.classList.toggle('on',!!map[v]);
+    if(v==='Other'){ var o=$(k==='exp'?'cap_exporter_other':'cap_importer_other'); if(o){ o.style.display=map[v]?'block':'none'; if(map[v]) o.focus(); else o.value=''; } }
+    capUpdateProgress(); }
   function capSignalHtml(){ return CAP_TAGS.map(function(t){ return '<button type="button" class="opt-tile'+(CAP.signals[t]?' on':'')+'" data-sig="'+esc(t)+'" onclick="CRM.capSignal(this)"><span class="tk">✓</span>'+esc(t)+'</button>'; }).join(''); }
   function capSignal(btn){ var t=btn.getAttribute('data-sig'); CAP.signals[t]=!CAP.signals[t]; btn.classList.toggle('on',!!CAP.signals[t]); capUpdateProgress(); }
   /* verify-me: fields filled by scan/OCR get an accent bar until the rep edits them */
@@ -3776,8 +3784,10 @@ window.CRM = (function(){
         +'<div class="fg"><label class="form-label">Country</label><input class="form-input" id="cap_country" list="cap_countries" autocomplete="off" autocapitalize="words" oninput="CRM.capUnmark(this)"/></div>'
       +'</div>'
       +'<div class="grid2">'+capFld('contact','Contact name','','text',' autocapitalize="words" enterkeyhint="next"')+capFld('role','Role','Head of Procurement','text',' autocapitalize="words" enterkeyhint="next"')+'</div>'
-      +'<div class="fg"><label class="form-label">Importer type <span class="lmuted">· all that apply</span></label><div class="opt-tiles" id="cap_imp">'+capTypeChipsHtml('imp')+'</div></div>'
-      +'<div class="fg"><label class="form-label">Exporter type <span class="lmuted">· all that apply</span></label><div class="opt-tiles" id="cap_exp">'+capTypeChipsHtml('exp')+'</div></div>'
+      +'<div class="fg"><label class="form-label">Importer type <span class="lmuted">· all that apply</span></label><div class="opt-tiles" id="cap_imp">'+capTypeChipsHtml('imp')+'</div>'
+        +'<input class="form-input" id="cap_importer_other" autocomplete="off" placeholder="Other — which importer type?" style="display:none;margin-top:8px" oninput="CRM.capUnmark(this)"/></div>'
+      +'<div class="fg"><label class="form-label">Exporter type <span class="lmuted">· all that apply</span></label><div class="opt-tiles" id="cap_exp">'+capTypeChipsHtml('exp')+'</div>'
+        +'<input class="form-input" id="cap_exporter_other" autocomplete="off" placeholder="Other — which exporter type?" style="display:none;margin-top:8px" oninput="CRM.capUnmark(this)"/></div>'
       /* ② how to reach them */
       +capStage('2','How to reach them','lock the contact in while they’re in front of you')
       +'<div class="grid2">'+capFld('email','Email','name@company.com','email',' inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next"')+capFld('phone','Phone','','tel',' inputmode="tel" enterkeyhint="next"')+'</div>'
