@@ -4061,6 +4061,8 @@ window.CRM = (function(){
   var CAMP={items:[],loaded:false,loading:false,logoData:null,editId:null,qrToken:null};
   var CAMP_TYPES=[['exhibition','Exhibition'],['digital','Digital'],['research','Research'],['referral','Referral'],['other','Other']];
   var CAMP_CUR=[['EUR','€ EUR'],['USD','$ USD'],['GBP','£ GBP']];
+  /* curated IANA timezones for exhibition locations — drives tz-aware activation + lead day */
+  var CAMP_TZ=[['Africa/Cairo','Cairo · Egypt (GMT+2)'],['UTC','UTC (GMT+0)'],['Europe/London','London (GMT+0/1)'],['Europe/Berlin','Berlin · Amsterdam · Paris · Madrid (GMT+1/2)'],['Europe/Athens','Athens · Istanbul (GMT+3)'],['Europe/Moscow','Moscow (GMT+3)'],['Asia/Dubai','Dubai · Abu Dhabi (GMT+4)'],['Asia/Karachi','Karachi (GMT+5)'],['Asia/Kolkata','India (GMT+5:30)'],['Asia/Bangkok','Bangkok · Jakarta (GMT+7)'],['Asia/Singapore','Singapore · Kuala Lumpur (GMT+8)'],['Asia/Hong_Kong','Hong Kong (GMT+8)'],['Asia/Shanghai','China (GMT+8)'],['Asia/Tokyo','Tokyo · Seoul (GMT+9)'],['Australia/Sydney','Sydney (GMT+10/11)'],['America/Sao_Paulo','São Paulo (GMT-3)'],['America/New_York','New York · Toronto (GMT-5/4)'],['America/Chicago','Chicago (GMT-6/5)'],['America/Los_Angeles','Los Angeles (GMT-8/7)']];
   function campCurSym(c){ return c==='USD'?'$':(c==='GBP'?'£':'€'); }
   function campLink(tok){ return FORM_HOST+'?c='+encodeURIComponent(tok||''); }
   function campLoad(){
@@ -4104,6 +4106,7 @@ window.CRM = (function(){
     if(c&&c.logo_url) CAMP.logoData=c.logo_url;
     var typeOpts=CAMP_TYPES.map(function(o){return '<option value="'+o[0]+'"'+(c&&c.type===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('');
     var curOpts=CAMP_CUR.map(function(o){return '<option value="'+o[0]+'"'+((c?c.currency:'EUR')===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('');
+    var tzOpts=CAMP_TZ.map(function(o){return '<option value="'+o[0]+'"'+((((c&&c.timezone)||'Africa/Cairo')===o[0])?' selected':'')+'>'+esc(o[1])+'</option>';}).join('');
     var pv=CAMP.logoData?'<img src="'+CAMP.logoData+'" style="max-height:52px;max-width:150px;border-radius:6px;background:#fff;padding:4px;border:1px solid var(--border)"/> <span class="link-btn" onclick="CRM.campLogoClear()">remove</span>':'<span class="cell-sub">No logo — the form shows the Daltex mark only.</span>';
     var body='<div class="l-form"><div class="l-formnote">Creating a campaign generates its own <b>public capture link + QR</b> automatically. Share the QR at the stand; every scan lands as a lead tagged to this campaign.</div>'
       +field('camp_name','Event / campaign name',c?c.name:'','e.g. Fruit Logistica 2026 — Berlin')
@@ -4111,6 +4114,9 @@ window.CRM = (function(){
       +'<div><label class="form-label" style="margin-top:8px">Currency</label><select class="form-select" id="camp_cur">'+curOpts+'</select></div></div>'
       +'<div class="grid2"><div>'+field('camp_start','Start date',c&&c.start_date?c.start_date:'','')+'</div><div>'+field('camp_end','End date',c&&c.end_date?c.end_date:'','')+'</div></div>'
       +'<div class="l-formhint" style="margin:-2px 0 6px">Dates accept <span class="mono">YYYY-MM-DD</span>.</div>'
+      +'<div class="grid2"><div>'+field('camp_location','Location (optional)',c&&c.location?c.location:'','e.g. Hong Kong · AsiaWorld-Expo')+'</div>'
+      +'<div><label class="form-label" style="margin-top:8px">Time zone</label><select class="form-select" id="camp_tz">'+tzOpts+'</select></div></div>'
+      +'<div class="l-formhint" style="margin:-2px 0 8px">Activation, auto-deactivation and each lead&rsquo;s day follow the event&rsquo;s time zone — so a lead captured after midnight in Hong Kong records on the new local day.</div>'
       +field('camp_cost','Cost (optional)',c&&c.cost!=null?String(c.cost):'','e.g. 41200')
       +'<label class="form-label" style="margin-top:10px">Event logo (optional)</label>'
       +'<div id="camp_logo_pv" style="margin:4px 0 6px">'+pv+'</div>'
@@ -4130,10 +4136,14 @@ window.CRM = (function(){
     if(end&&!dre.test(end)){ if(w) w.innerHTML='<div class="alert-fail" style="margin-top:10px">End date must be YYYY-MM-DD.</div>'; return; }
     var costRaw=(($('camp_cost')||{}).value||'').replace(/[, ]/g,'').trim();
     var cost=costRaw?Number(costRaw):null; if(cost!=null&&isNaN(cost)){ if(w) w.innerHTML='<div class="alert-fail" style="margin-top:10px">Cost must be a number.</div>'; return; }
+    var tz=($('camp_tz')||{}).value||'Africa/Cairo';
     var rec={ name:name, type:($('camp_type')||{}).value||'exhibition', currency:($('camp_cur')||{}).value||'EUR',
-      start_date:start||null, end_date:end||null, cost:cost, logo_url:CAMP.logoData||null, updated_at:new Date().toISOString() };
-    /* re-arm auto-expiry: an end date today-or-later clears the marker so the daily job can auto-deactivate again at the new date */
-    if(end && end>=new Date().toISOString().slice(0,10)) rec.auto_deactivated_at=null;
+      start_date:start||null, end_date:end||null, cost:cost,
+      location:(($('camp_location')||{}).value||'').trim()||null, timezone:tz,
+      logo_url:CAMP.logoData||null, updated_at:new Date().toISOString() };
+    /* re-arm auto-expiry vs the event's LOCAL today, so it can auto-deactivate again at the new end date */
+    var localToday; try{ localToday=new Date().toLocaleDateString('en-CA',{timeZone:tz}); }catch(e){ localToday=new Date().toISOString().slice(0,10); }
+    if(end && end>=localToday) rec.auto_deactivated_at=null;
     var btn=w&&w.parentNode?w.parentNode.querySelector('.btn-primary'):null; if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
     var q=CAMP.editId ? SB.from('crm_campaigns').update(rec).eq('id',CAMP.editId).select('id,public_token').single()
                       : SB.from('crm_campaigns').insert(rec).select('id,public_token').single();
@@ -4240,7 +4250,7 @@ window.CRM = (function(){
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campNew(\''+c.id+'\')">Edit</button>'
         +'<button class="btn btn-secondary btn-sm" onclick="CRM.campToggle(\''+c.id+'\','+(c.active?'false':'true')+')">'+(c.active?'Deactivate':(ended?'Reactivate':'Activate'))+'</button>'
         +'</div>';
-      return '<tr'+(c.active?'':' style="opacity:.62"')+'><td>'+logo+'</td><td><b>'+esc(c.name)+'</b></td><td>'+bdg('badge-n',c.type||'—')+'</td><td class="mono">'+esc(dates)+'</td><td class="mono">'+(c.cost!=null?sym+Number(c.cost).toLocaleString():'—')+'</td><td class="mono">'+Number(c.lead_count||0)+'</td><td>'+pill+'</td><td>'+acts+'</td></tr>';
+      return '<tr'+(c.active?'':' style="opacity:.62"')+'><td>'+logo+'</td><td><b>'+esc(c.name)+'</b>'+(c.location?'<div class="cell-sub">📍 '+esc(c.location)+'</div>':'')+'</td><td>'+bdg('badge-n',c.type||'—')+'</td><td class="mono">'+esc(dates)+'</td><td class="mono">'+(c.cost!=null?sym+Number(c.cost).toLocaleString():'—')+'</td><td class="mono">'+Number(c.lead_count||0)+'</td><td>'+pill+'</td><td>'+acts+'</td></tr>';
     }).join('');
     if(!items.length) rows='<tr><td colspan="8" class="cell-sub" style="padding:16px;text-align:center">No campaigns yet. Create one to generate a stand QR.</td></tr>';
     vc.innerHTML='<div class="lead-portal">'
