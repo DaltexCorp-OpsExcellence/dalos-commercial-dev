@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <title>DalOS Commercial</title>
 <meta name="theme-color" content="#2f2a3d"/>
 <!-- Browser-tab / bookmark identity: growth-pipeline mark on aubergine (DalOS Commercial brand). -->
@@ -55,7 +55,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .cqc-two-col-bot{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:900px){ .cqc-two-col,.cqc-two-col-bot{grid-template-columns:1fr} }
 /* Mobile: off-canvas sidebar + hamburger (desktop is unaffected) */
-.cm-burger{display:none;position:fixed;top:9px;left:9px;z-index:1001;width:40px;height:40px;align-items:center;justify-content:center;background:var(--sidebar);color:#fff;border:1px solid var(--sidebar2);border-radius:10px;box-shadow:0 3px 12px rgba(0,0,0,.28);cursor:pointer;padding:0}
+.cm-burger{display:none;position:fixed;top:calc(9px + env(safe-area-inset-top));left:9px;z-index:1001;width:40px;height:40px;align-items:center;justify-content:center;background:var(--sidebar);color:#fff;border:1px solid var(--sidebar2);border-radius:10px;box-shadow:0 3px 12px rgba(0,0,0,.28);cursor:pointer;padding:0}
 .cm-burger svg{width:20px;height:20px;display:block}
 .cm-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999}
 @media(max-width:767px){
@@ -64,7 +64,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
   .crmv .sidebar{display:flex !important;position:fixed !important;left:0;top:0;bottom:0;height:100dvh !important;width:min(82vw,300px) !important;z-index:1000;transform:translateX(-100%) !important;transition:transform .25s ease;box-shadow:0 0 40px rgba(0,0,0,.45)}
   .crmv .sidebar.mob-open{transform:translateX(0) !important}
   .cm-burger{display:flex}
-  .cm-content{padding-top:52px}
+  .cm-content{padding-top:calc(52px + env(safe-area-inset-top))}
 }
 /* CqcPreviewModal skeleton reuses this global keyframe (also defined by injectCrmCss) */
 @keyframes dh-shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
@@ -144,7 +144,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8"></script>
-<script src="crm.js?cb=30"></script>
+<script src="crm.js?cb=31"></script>
 </head>
 <body>
 <div id="root"></div>

@@ -3437,7 +3437,7 @@ window.CRM = (function(){
   }
   function capClear(){ capSource='manual'; CAP.editingId=null; CAP.chips={}; CAP.exporters={}; CAP.importers={}; CAP.signals={}; CAP.scanned={}; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; CAP.cardDirty=false; CAP.groupDirty=false; capRenderGroupChip();
     ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
-    var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
+    var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on,.opt-tile.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
     var o=$('cap_products_other'); if(o) o.style.display='none'; capRenderPhotoChip(); }
   function capSetCampaign(id){
     if(id===CAP.campaignId){ return; }
@@ -3572,7 +3572,7 @@ window.CRM = (function(){
   function capRenderHead(){ var el=$('cap_head'); if(el) el.innerHTML=capHeadHtml(); capRenderTally(); }
   function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); capRenderTally(); }
 
-  function capFld(id,label,ph,type){ return '<div class="fg"><label class="form-label">'+esc(label)+'</label><input class="form-input" id="cap_'+id+'"'+(type?' type="'+type+'"':'')+(ph?' placeholder="'+esc(ph)+'"':'')+' autocomplete="off" oninput="CRM.capUnmark(this)"/></div>'; }
+  function capFld(id,label,ph,type,extra){ return '<div class="fg"><label class="form-label">'+esc(label)+'</label><input class="form-input" id="cap_'+id+'"'+(type?' type="'+type+'"':'')+(ph?' placeholder="'+esc(ph)+'"':'')+' autocomplete="off"'+(extra||'')+' oninput="CRM.capUnmark(this)"/></div>'; }
   /* conversation-stage header for the show-mode form */
   function capStage(n,lbl,cue){ return '<div class="capstage"><span class="num">'+n+'</span><span class="swrap"><span class="lbl">'+lbl+'</span><span class="cue">'+cue+'</span></span><span class="bar"></span></div>'; }
   /* consistent 16px currentColor icons for the capture tools (replaces the mixed no-icon/emoji set) */
@@ -3583,18 +3583,18 @@ window.CRM = (function(){
     return '<svg class="capbtn-ic" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'+p+'</svg>';
   }
   /* ── Show-mode chips / type / notes helpers ── */
-  function capProdChipsHtml(){ return CAP_PRODUCTS.map(function(p){ return '<button type="button" class="capchip'+(CAP.chips[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.capToggleProd(this)">'+esc(p)+'</button>'; }).join(''); }
+  function capProdChipsHtml(){ return CAP_PRODUCTS.map(function(p){ return '<button type="button" class="opt-tile'+(CAP.chips[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.capToggleProd(this)"><span class="tk">✓</span>'+esc(p)+'</button>'; }).join(''); }
   function capToggleProd(btn){ var p=btn.getAttribute('data-prod'); CAP.chips[p]=!CAP.chips[p]; btn.classList.toggle('on',!!CAP.chips[p]); if(p==='Other'){ var o=$('cap_products_other'); if(o){ o.style.display=CAP.chips[p]?'block':'none'; if(CAP.chips[p]) o.focus(); else o.value=''; } } }
-  function capTypeChipsHtml(kind){ var arr=kind==='exp'?CAP_EXP:CAP_IMP, map=kind==='exp'?CAP.exporters:CAP.importers; return arr.map(function(v){ return '<button type="button" class="capchip sm'+(map[v]?' on':'')+'" data-k="'+kind+'" data-v="'+esc(v)+'" onclick="CRM.capType(this)">'+esc(v)+'</button>'; }).join(''); }
+  function capTypeChipsHtml(kind){ var arr=kind==='exp'?CAP_EXP:CAP_IMP, map=kind==='exp'?CAP.exporters:CAP.importers; return arr.map(function(v){ return '<button type="button" class="opt-tile'+(map[v]?' on':'')+'" data-k="'+kind+'" data-v="'+esc(v)+'" onclick="CRM.capType(this)"><span class="tk">✓</span>'+esc(v)+'</button>'; }).join(''); }
   /* multi-select: a company can be more than one type (retailer AND wholesaler) */
   function capType(btn){ var k=btn.getAttribute('data-k'), v=btn.getAttribute('data-v'); var map=k==='exp'?CAP.exporters:CAP.importers; map[v]=!map[v]; btn.classList.toggle('on',!!map[v]); }
-  function capSignalHtml(){ return CAP_TAGS.map(function(t){ return '<button type="button" class="capchip'+(CAP.signals[t]?' on':'')+'" data-sig="'+esc(t)+'" onclick="CRM.capSignal(this)">'+esc(t)+'</button>'; }).join(''); }
+  function capSignalHtml(){ return CAP_TAGS.map(function(t){ return '<button type="button" class="opt-tile'+(CAP.signals[t]?' on':'')+'" data-sig="'+esc(t)+'" onclick="CRM.capSignal(this)"><span class="tk">✓</span>'+esc(t)+'</button>'; }).join(''); }
   function capSignal(btn){ var t=btn.getAttribute('data-sig'); CAP.signals[t]=!CAP.signals[t]; btn.classList.toggle('on',!!CAP.signals[t]); }
   /* verify-me: fields filled by scan/OCR get an accent bar until the rep edits them */
   function capMarkScanned(id){ CAP.scanned[id]=true; var el=$('cap_'+id); if(el) el.classList.add('scanned'); }
   function capUnmark(el){ if(el&&el.classList) el.classList.remove('scanned'); }
   function capTagsHtml(){ return CAP_TAGS.map(function(t){ return '<button type="button" class="captag" data-tag="'+esc(t)+'" onclick="CRM.capQuickTag(this)">'+esc(t)+'</button>'; }).join(''); }
-  function capFollowupsHtml(){ return CAP_FOLLOWUPS.map(function(o){ return '<button type="button" class="capchip'+(CAP.followups[o[0]]?' on':'')+'" data-fu="'+o[0]+'" onclick="CRM.capToggleFollowup(this)">'+esc(o[1])+'</button>'; }).join(''); }
+  function capFollowupsHtml(){ return CAP_FOLLOWUPS.map(function(o){ return '<button type="button" class="opt-tile'+(CAP.followups[o[0]]?' on':'')+'" data-fu="'+o[0]+'" onclick="CRM.capToggleFollowup(this)"><span class="tk">✓</span>'+esc(o[1])+'</button>'; }).join(''); }
   function capToggleFollowup(btn){ var k=btn.getAttribute('data-fu'); CAP.followups[k]=!CAP.followups[k]; btn.classList.toggle('on',!!CAP.followups[k]); }
   /* notes: an inline field + a full-screen pad share one value (mirrored both ways) */
   function capActiveNotes(){ return $(CAP.notesOverlay?'cap_notes_big':'cap_notes'); }
@@ -3676,31 +3676,29 @@ window.CRM = (function(){
       /* ① who you're meeting */
       +capStage('1','Who you’re meeting','the handshake — name, company, where they’re from')
       +'<div class="grid2">'
-        +'<div class="fg"><label class="form-label">Company <span class="req">*</span></label><input class="form-input" id="cap_company" autocomplete="off" placeholder="e.g. Nordfrucht GmbH" oninput="CRM.capUnmark(this)"/></div>'
-        +'<div class="fg"><label class="form-label">Country</label><input class="form-input" id="cap_country" list="cap_countries" autocomplete="off" oninput="CRM.capUnmark(this)"/></div>'
+        +'<div class="fg"><label class="form-label">Company <span class="req">*</span></label><input class="form-input" id="cap_company" autocomplete="off" autocapitalize="words" enterkeyhint="next" placeholder="e.g. Nordfrucht GmbH" oninput="CRM.capUnmark(this)"/></div>'
+        +'<div class="fg"><label class="form-label">Country</label><input class="form-input" id="cap_country" list="cap_countries" autocomplete="off" autocapitalize="words" oninput="CRM.capUnmark(this)"/></div>'
       +'</div>'
-      +'<div class="grid2">'+capFld('contact','Contact name','')+capFld('role','Role','Head of Procurement')+'</div>'
-      +'<div class="grid2">'
-        +'<div class="fg"><label class="form-label">Importer type <span class="lmuted">· all that apply</span></label><div class="capchips" id="cap_imp">'+capTypeChipsHtml('imp')+'</div></div>'
-        +'<div class="fg"><label class="form-label">Exporter type <span class="lmuted">· all that apply</span></label><div class="capchips" id="cap_exp">'+capTypeChipsHtml('exp')+'</div></div>'
-      +'</div>'
+      +'<div class="grid2">'+capFld('contact','Contact name','','text',' autocapitalize="words" enterkeyhint="next"')+capFld('role','Role','Head of Procurement','text',' autocapitalize="words" enterkeyhint="next"')+'</div>'
+      +'<div class="fg"><label class="form-label">Importer type <span class="lmuted">· all that apply</span></label><div class="opt-tiles" id="cap_imp">'+capTypeChipsHtml('imp')+'</div></div>'
+      +'<div class="fg"><label class="form-label">Exporter type <span class="lmuted">· all that apply</span></label><div class="opt-tiles" id="cap_exp">'+capTypeChipsHtml('exp')+'</div></div>'
       /* ② how to reach them */
       +capStage('2','How to reach them','lock the contact in while they’re in front of you')
-      +'<div class="grid2">'+capFld('email','Email','name@company.com','email')+capFld('phone','Phone','','tel')+'</div>'
-      +'<div class="grid2">'+capFld('website','Website','www.company.com')
-        +'<div class="fg"><label class="form-label">Address</label><input class="form-input" id="cap_address" autocomplete="off" placeholder="street, city, country" oninput="CRM.capUnmark(this)"/></div></div>'
+      +'<div class="grid2">'+capFld('email','Email','name@company.com','email',' inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next"')+capFld('phone','Phone','','tel',' inputmode="tel" enterkeyhint="next"')+'</div>'
+      +'<div class="grid2">'+capFld('website','Website','www.company.com','text',' inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false"')
+        +'<div class="fg"><label class="form-label">Address</label><input class="form-input" id="cap_address" autocomplete="off" autocapitalize="words" placeholder="street, city, country" oninput="CRM.capUnmark(this)"/></div></div>'
       /* ③ their business */
       +capStage('3','Their business','context — what they trade &amp; where')
       +'<div class="fg"><label class="form-label">Products / industries they deal in</label><input class="form-input" id="cap_products_industries" autocomplete="off" placeholder="what they trade" oninput="CRM.capUnmark(this)"/></div>'
       +'<div class="fg"><label class="form-label">Countries of export / import</label><input class="form-input" id="cap_trade_countries" autocomplete="off" placeholder="e.g. UK, Germany, UAE" oninput="CRM.capUnmark(this)"/></div>'
       /* ④ what they're after */
       +capStage('4','What they’re after','the hook — what they want from Daltex')
-      +'<div class="fg"><label class="form-label">Products of interest</label><div class="capchips" id="cap_prodchips">'+capProdChipsHtml()+'</div>'
+      +'<div class="fg"><label class="form-label">Products of interest</label><div class="opt-tiles" id="cap_prodchips">'+capProdChipsHtml()+'</div>'
         +'<input class="form-input" id="cap_products_other" autocomplete="off" placeholder="Other — which products?" style="display:none;margin-top:6px"/></div>'
       +capFld('annual_quantity','Annual quantity','e.g. 300 cont. / season')
       /* ⑤ notes */
       +capStage('5','Notes from the stand','most valuable, shortest-lived — jot it now')
-      +'<div class="fg"><label class="form-label">Lead signal <span class="lmuted">· saved as a tag</span></label><div class="capchips" id="cap_signals">'+capSignalHtml()+'</div></div>'
+      +'<div class="fg"><label class="form-label">Lead signal <span class="lmuted">· saved as a tag</span></label><div class="opt-tiles" id="cap_signals">'+capSignalHtml()+'</div></div>'
       +'<div class="fg"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label class="form-label" style="margin:0">Notes</label>'
         +'<button type="button" class="cap-bt" id="cap_bt"'+(CAP.bullets?' data-on="1"':'')+' onclick="CRM.capBulletsToggle()">• Bullets</button>'
         +'<button type="button" class="cap-bt" style="margin-left:auto" onclick="CRM.capNotesExpand()">⤢ Expand</button></div>'
@@ -3708,7 +3706,7 @@ window.CRM = (function(){
         +'<div class="hint" style="margin-top:4px">Tip: tap <b>⤢ Expand</b> for a full-screen pad, or use your keyboard mic to dictate.</div></div>'
       /* ⑥ follow-up */
       +capStage('6','Follow-up actions','what we owe this lead')
-      +'<div class="fg"><div class="capchips" id="cap_followups">'+capFollowupsHtml()+'</div></div>'
+      +'<div class="fg"><div class="opt-tiles" id="cap_followups">'+capFollowupsHtml()+'</div></div>'
       +'<div class="gset cap-actions" style="align-items:center"><button class="btn btn-primary" id="cap_savebtn" onclick="CRM.capSave()">'+(CAP.editingId?'Update lead':'Save &amp; capture next')+'</button><button class="btn btn-secondary" onclick="'+(CAP.editingId?'CRM.capCancelEdit()':'CRM.capClear()')+'">'+(CAP.editingId?'Cancel edit':'Clear')+'</button><span id="cap_tally" style="margin-left:auto">'+capTallyHtml()+'</span></div>'
       +'</div>';
     var list='<div class="card">'
@@ -5154,6 +5152,30 @@ function injectCrmCss(){
 .crmv .capbtn.cap-group{flex-direction:row;align-items:center;gap:8px;padding:7px 11px}
 .crmv .capbtn.cap-group .caps{margin-left:auto;text-align:right;font-size:9.5px}
 .crmv .capbtn-ic{width:15px;height:15px;vertical-align:-3px;margin-right:6px;opacity:.75;color:var(--accent)}
+/* option TILES — checkable cards (chosen over pills); capture pane only, enrich keeps .capchip */
+.crmv .opt-tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.crmv .opt-tile{display:flex;align-items:center;gap:9px;padding:10px 12px;min-height:46px;background:#fff;border:1px solid var(--border2);border-radius:12px;font-family:var(--font-body);font-size:13px;color:var(--text2);cursor:pointer;text-align:left;line-height:1.2;transition:background .12s,border-color .12s,color .12s,box-shadow .12s,transform .08s}
+.crmv .opt-tile:active{transform:scale(.98)}
+.crmv .opt-tile .tk{width:19px;height:19px;flex:0 0 auto;border-radius:6px;border:1.5px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:12px;color:transparent}
+.crmv .opt-tile.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,#fff);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(34,31,43,.10)}
+.crmv .opt-tile.on .tk{background:var(--accent);border-color:var(--accent);color:#fff}
+/* ── ELITE lift (materials / wells / masthead / save bar) — Pewter, additive ── */
+.crmv .lead-portal .card{border-color:var(--border2);box-shadow:0 1px 2px rgba(34,31,43,.05),0 12px 32px -16px rgba(34,31,43,.20)}
+.crmv .lead-portal .form-input{background:#fff;border-color:var(--border2);transition:border-color .15s,box-shadow .15s}
+.crmv .lead-portal .form-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent);outline:none}
+.crmv .lead-portal .form-input:not(:placeholder-shown){border-color:var(--border)}
+.crmv .cap-title{font-size:26px;letter-spacing:-.01em}
+.crmv .cap-titlesub{text-transform:uppercase;letter-spacing:.12em;color:var(--text3)}
+@media(max-width:767px){ .crmv .cap-head-row .cap-title{font-size:23px} }
+.crmv .cap-actions{box-shadow:0 -8px 20px -12px rgba(34,31,43,.22)}
+.crmv .cap-actions .btn-primary{background:linear-gradient(180deg,var(--accent),var(--accent2));box-shadow:0 1px 2px rgba(34,31,43,.18);letter-spacing:.01em}
+.crmv .cap-actions .btn-primary:hover{background:var(--accent2)}
+.crmv .capbtn{background:#fff;box-shadow:0 1px 2px rgba(34,31,43,.05)}
+.crmv .capbtn-ic{width:28px;height:28px;padding:6px;margin-right:8px;border-radius:8px;background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent);opacity:1;box-sizing:border-box;vertical-align:middle}
+.crmv .form-input.scanned{background:color-mix(in srgb,var(--accent) 5%,#fff)}
+.crmv .capstage{margin:22px 0 10px}
+.crmv .capstage:first-of-type{margin-top:10px}
+@media (prefers-reduced-motion: reduce){ .crmv *{animation:none!important;transition:none!important} }
 /* verify-me cue: scan/OCR-filled fields carry an accent bar until edited */
 .crmv .form-input.scanned{border-left:3px solid var(--accent)}
 /* lead-signal dots in the session list */
