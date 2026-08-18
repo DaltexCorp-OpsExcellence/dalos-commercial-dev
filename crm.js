@@ -3120,8 +3120,26 @@ window.CRM = (function(){
      real one — never a "Test Campaign" — so stand captures don't mis-attribute. */
   function capDefaultCampaign(list){
     if(!list||!list.length) return null;
+    var today=new Date().toISOString().slice(0,10);
+    var inRange=function(c){ return c.start_date && c.end_date && c.start_date<=today && today<=c.end_date; };
+    /* the exhibition running RIGHT NOW (open the stand straight onto it) */
+    var live=list.filter(function(c){ return c.type==='exhibition' && inRange(c); });
+    if(live.length) return live.sort(function(a,b){ return (b.start_date||'').localeCompare(a.start_date||''); })[0].id;
+    var liveAny=list.filter(inRange); if(liveAny.length) return liveAny[0].id;   /* any campaign live today */
     var real=list.filter(function(c){ return !/\btest\b/i.test(c.name||''); });
     return (real[0]||list[0]).id;
+  }
+  /* event-day indicator for the selected exhibition (Day N of M during the event) */
+  function capEventDay(c){
+    if(!c || c.type!=='exhibition' || !c.start_date || !c.end_date) return null;
+    var d0=function(s){ var p=String(s).slice(0,10).split('-'); return new Date(+p[0], +p[1]-1, +p[2]); };
+    var t=new Date(); t=new Date(t.getFullYear(),t.getMonth(),t.getDate());
+    var s=d0(c.start_date), e=d0(c.end_date);
+    var total=Math.round((e-s)/86400000)+1, n=Math.round((t-s)/86400000)+1;
+    if(total<1) return null;
+    if(n<1) return {state:'before', in:1-n, total:total};
+    if(n>total) return {state:'after', total:total};
+    return {state:'live', day:n, total:total};
   }
   function capBootstrap(){
     if(CAP.loaded){ capSync(); return; }
@@ -3130,7 +3148,7 @@ window.CRM = (function(){
        likely has signal — instead of at first Scan/Photo tap. Warms the SW cache for offline use. */
     try{ capLoadScript('lib/jsQR.js').catch(function(){}); capLoadScript('lib/qrcode.min.js').catch(function(){}); capLoadScript('lib/tesseract.min.js').catch(function(){}); }catch(e){}
     capLoadQueue().then(function(items){ CAP.items=items.sort(function(a,b){return (b.captured_at||'').localeCompare(a.captured_at||'');}); capRenderList(); capRenderHead(); capSync(); }).catch(function(){});
-    if(SB) SB.from('crm_campaigns').select('id,name,type,active,public_token').eq('active',true).order('created_at',{ascending:false}).then(function(res){ if(res&&!res.error){ CAP.campaigns=res.data||[]; if(!CAP.campaignId && CAP.campaigns.length) CAP.campaignId=capDefaultCampaign(CAP.campaigns); capRenderHead(); capLoadCampaign(); } }).catch(function(){});
+    if(SB) SB.from('crm_campaigns').select('id,name,type,active,public_token,start_date,end_date').eq('active',true).order('created_at',{ascending:false}).then(function(res){ if(res&&!res.error){ CAP.campaigns=res.data||[]; if(!CAP.campaignId && CAP.campaigns.length) CAP.campaignId=capDefaultCampaign(CAP.campaigns); capRenderHead(); capLoadCampaign(); } }).catch(function(){});
     try{ window.addEventListener('online',function(){ CAP.online=true; capRenderHead(); capSync(); capSyncDirty(); capLoadCampaign(); }); window.addEventListener('offline',function(){ CAP.online=false; capRenderHead(); }); }catch(e){}
     if(!CAP._timer) CAP._timer=setInterval(function(){ if(CAP.online && capIsActive()){ if(capPending().length) capSync(); capSyncDirty(); capLoadCampaign(); } },20000);
     /* slide the sticky Save bar out of the way while a capture field is focused (keyboard up) so it never covers what you're typing */
@@ -3610,9 +3628,17 @@ window.CRM = (function(){
   function capRenderTally(){ var el=$('cap_tally'); if(el) el.innerHTML=capTallyHtml(); }
   function capHeadHtml(){
     var opts=CAP.campaigns.length ? CAP.campaigns.map(function(c){ return '<option value="'+esc(c.id)+'"'+(c.id===CAP.campaignId?' selected':'')+'>'+esc(c.name)+'</option>'; }).join('') : '<option value="">No active campaign yet</option>';
+    var sel=null; for(var i=0;i<CAP.campaigns.length;i++){ if(CAP.campaigns[i].id===CAP.campaignId){ sel=CAP.campaigns[i]; break; } }
+    var ed=capEventDay(sel), dayBadge='';
+    if(ed){
+      if(ed.state==='live') dayBadge='<span class="cap-dayn live">● Day '+ed.day+' of '+ed.total+'</span>';
+      else if(ed.state==='before') dayBadge='<span class="cap-dayn">Starts in '+ed.in+' day'+(ed.in===1?'':'s')+'</span>';
+      else dayBadge='<span class="cap-dayn">Event ended</span>';
+    }
     return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">'
       +'<span class="badge badge-n">Campaign</span>'
       +'<select class="form-select" style="width:auto;max-width:230px" onchange="CRM.capSetCampaign(this.value)">'+opts+'</select>'
+      +dayBadge
       +'<button type="button" class="cap-home" onclick="CRM.capAddToHome()">📲 Add to Home</button>'
       +'<span style="margin-left:auto">'+capStatusPill()+'</span></div>';
   }
@@ -5482,6 +5508,9 @@ function injectCrmCss(){
 @keyframes capmk-trace{0%{stroke-dashoffset:58}45%{stroke-dashoffset:0}75%{stroke-dashoffset:0}100%{stroke-dashoffset:58}}
 @keyframes capmk-peak{0%,100%{opacity:.5;transform:scale(.75)}45%,75%{opacity:1;transform:scale(1.15)}}
 @keyframes capmk-pop{0%,100%{opacity:.35;transform:scale(.7)}45%,75%{opacity:1;transform:scale(1)}}
+/* event day-# indicator on the Show Mode campaign row */
+.crmv .cap-dayn{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:3px 10px;background:var(--bg2);color:var(--text2);border:1px solid var(--border)}
+.crmv .cap-dayn.live{background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 34%,transparent)}
 /* lead-drawer section headers (full dossier view) */
 .crmv .l-dsec{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);opacity:.85;margin:16px 0 4px;padding-top:9px;border-top:1px solid var(--border)}
 .crmv .l-form .l-dsec:first-of-type{margin-top:8px;border-top:none;padding-top:0}
