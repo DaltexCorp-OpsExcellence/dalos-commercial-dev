@@ -3327,7 +3327,7 @@ window.CRM = (function(){
   function capScanFromLink(url){
     var addToNotes=function(){ var n=$('cap_notes'); if(n){ n.value=(n.value?n.value+' · ':'')+url; capUpdateProgress&&capUpdateProgress(); } toast('Scanned a link — added to notes.'); };
     if(!CAP.online || !SB || !SB.functions || !SB.functions.invoke){ addToNotes(); return; }
-    toast('Scanned a link — reading the page…');
+    capBusy('Reading the linked page…');
     SB.functions.invoke('capture-link-extract',{body:{url:url}}).then(function(r){
       var d=r&&r.data;
       if(d&&d.ok&&d.fields&&(d.fields.email||d.fields.contact||d.fields.company||d.fields.phone)){
@@ -3335,7 +3335,8 @@ window.CRM = (function(){
         capPrefill({ company:d.fields.company, name:d.fields.contact, role:d.fields.role, email:d.fields.email, phone:d.fields.phone, website:d.fields.website, country:d.fields.country, address:d.fields.address });
         toast('Read from the linked page — check the fields, then Save.');
       } else { addToNotes(); }
-    }, function(){ addToNotes(); }).catch(function(){ addToNotes(); });
+      capBusyDone();
+    }, function(){ addToNotes(); capBusyDone(); }).catch(function(){ addToNotes(); capBusyDone(); });
   }
   function capScanOverlay(){
     return '<div id="cap_scan" style="display:none;position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.86);align-items:center;justify-content:center;flex-direction:column;gap:14px">'
@@ -3391,7 +3392,7 @@ window.CRM = (function(){
     var file=input&&input.files&&input.files[0]; if(!file){ return; }
     input.value='';
     capSource='ocr_card';
-    toast('Photo attached — reading the card…');
+    capBusy('Reading the card…');   /* persistent processing indicator (slow wifi can take a few seconds) */
     /* save the photo, then read it: vision-LLM edge function first (best on designed cards),
        on-device Tesseract as the offline / not-configured fallback. */
     capAttachPhoto(file,function(durl){ capOcrRun(durl); });
@@ -3424,10 +3425,14 @@ window.CRM = (function(){
   }
   function capOcrRun(durl){
     capOcrCloud(durl).then(function(f){
-      if(f && (f.email||f.company||f.name)){ capPrefill(f); toast('Read from the card by AI — check the fields, then Save.'); return; }
-      return capOcrLocal(durl);
-    }).catch(function(){ capOcrLocal(durl); });
+      if(f && (f.email||f.company||f.name)){ capPrefill(f); toast('Read from the card by AI — check the fields, then Save.'); capBusyDone(); return; }
+      return capOcrLocal(durl).then(capBusyDone,capBusyDone);
+    }).catch(function(){ capOcrLocal(durl).then(capBusyDone,capBusyDone); });
   }
+  /* processing indicator — animated DalOS mark; shown during the async card/link read */
+  var CAP_LOGO_SVG='<svg width="100%" height="100%" viewBox="4 4 56 50" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 44 L25 36 L37 40 L53 17" stroke="#c9b6ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><g fill="#a98bff"><circle cx="11" cy="44" r="3"/><circle cx="25" cy="36" r="3"/><circle cx="37" cy="40" r="3"/></g><circle cx="53" cy="17" r="5.2" fill="#e2d7ff"/></svg>';
+  function capBusy(msg){ var el=$('cap_ocr_busy'); if(!el) return; var t=el.querySelector('.cap-busy-txt'); if(t) t.textContent=msg||'Reading…'; el.style.display='flex'; }
+  function capBusyDone(){ var el=$('cap_ocr_busy'); if(el) el.style.display='none'; }
   /* upscale small cards + grayscale + contrast stretch — big Tesseract accuracy win over the raw photo */
   function capOcrPreprocess(durl){
     return new Promise(function(resolve){
@@ -3550,7 +3555,7 @@ window.CRM = (function(){
   function capClear(){ capSource='manual'; CAP.editingId=null; CAP.chips={}; CAP.exporters={}; CAP.importers={}; CAP.signals={}; CAP.scanned={}; CAP.followups={}; CAP.cardData=null; CAP.groupData=null; CAP.cardDirty=false; CAP.groupDirty=false; capRenderGroupChip();
     ['company','contact','role','email','phone','website','country','address','products_industries','trade_countries','annual_quantity','products_other','importer_other','exporter_other','notes','notes_big'].forEach(function(id){ var el=$('cap_'+id); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; el.classList&&el.classList.remove('scanned'); } });
     var pane=$('viewContent'); if(pane){ var ch=pane.querySelectorAll('.capchip.on,.opt-tile.on'); for(var i=0;i<ch.length;i++) ch[i].classList.remove('on'); }
-    ['cap_products_other','cap_importer_other','cap_exporter_other'].forEach(function(id){ var o=$(id); if(o) o.style.display='none'; }); capRenderPhotoChip(); capUpdateProgress(); }
+    ['cap_products_other','cap_importer_other','cap_exporter_other'].forEach(function(id){ var o=$(id); if(o) o.style.display='none'; }); capRenderPhotoChip(); capBusyDone(); capUpdateProgress(); }
   function capSetCampaign(id){
     if(id===CAP.campaignId){ return; }
     /* a half-typed capture would otherwise be stamped to the newly-selected campaign on Save */
@@ -3811,6 +3816,7 @@ window.CRM = (function(){
       +'<div id="cap_photo_chip"></div>'
       +'<label class="capbtn cap-group" style="cursor:pointer;width:100%;margin-bottom:4px"><span class="capt">'+capIcon('group')+'Group photo with the lead</span><span class="caps">documentation — you &amp; the lead</span><input type="file" accept="image/*" capture="environment" style="position:absolute;width:1px;height:1px;opacity:0" onchange="CRM.capGroupPick(this)"/></label>'
       +'<div id="cap_group_chip"></div>'
+      +'<div id="cap_ocr_busy" class="cap-busy" style="display:none"><span class="cap-busy-mark">'+CAP_LOGO_SVG+'</span><span class="cap-busy-txt">Reading the card…</span></div>'
       /* ① who you're meeting */
       +capStage('1','Who you’re meeting','the handshake — name, company, where they’re from')
       +'<div class="grid2">'
@@ -5350,6 +5356,16 @@ function injectCrmCss(){
 .crmv .cap-dot.hot{background:var(--red)}
 .crmv .cap-dot.warm{background:var(--amber)}
 .crmv .cap-you{display:inline-block;font-size:10px;font-weight:700;color:#fff;background:var(--accent);border-radius:999px;padding:1px 8px}
+/* OCR/QR processing indicator — animated DalOS mark in a dark chip + banner */
+.crmv .cap-busy{display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:10px;background:color-mix(in srgb,var(--accent) 7%,var(--card));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--border));border-radius:12px}
+.crmv .cap-busy-mark{width:32px;height:32px;flex:0 0 32px;border-radius:8px;background:var(--sidebar);padding:4px;box-sizing:border-box}
+.crmv .cap-busy-txt{font-size:13px;font-weight:600;color:var(--accent)}
+.crmv .cap-busy-mark svg path{stroke-dasharray:58;animation:capmk-trace 1.9s ease-in-out infinite}
+.crmv .cap-busy-mark svg>circle{transform-box:fill-box;transform-origin:center;animation:capmk-peak 1.9s ease-in-out infinite}
+.crmv .cap-busy-mark svg g circle{transform-box:fill-box;transform-origin:center;animation:capmk-pop 1.9s ease-in-out infinite}
+@keyframes capmk-trace{0%{stroke-dashoffset:58}45%{stroke-dashoffset:0}75%{stroke-dashoffset:0}100%{stroke-dashoffset:58}}
+@keyframes capmk-peak{0%,100%{opacity:.5;transform:scale(.75)}45%,75%{opacity:1;transform:scale(1.15)}}
+@keyframes capmk-pop{0%,100%{opacity:.35;transform:scale(.7)}45%,75%{opacity:1;transform:scale(1)}}
 /* lead-drawer section headers (full dossier view) */
 .crmv .l-dsec{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);opacity:.85;margin:16px 0 4px;padding-top:9px;border-top:1px solid var(--border)}
 .crmv .l-form .l-dsec:first-of-type{margin-top:8px;border-top:none;padding-top:0}
