@@ -516,7 +516,7 @@ window.CRM = (function(){
   function pAvg(arr){ return arr.length?Math.round(arr.reduce(function(a,b){return a+b;},0)/arr.length*10)/10:null; }
   function claimAmt(v){ return num(v); }
   function sumsAdd(map,c){ if(!c.rawValue||c.potential) return; var k=curSym(c.currency); map[k]=(map[k]||0)+claimAmt(c.rawValue); }
-  function sumsFmt(map){ var ks=Object.keys(map); if(!ks.length) return '—'; return ks.map(function(k){ var v=map[k]; return k+(v>=1000?(Math.round(v/100)/10)+'k':Math.round(v)); }).join(' + '); }
+  function sumsFmt(map){ var ks=Object.keys(map); if(!ks.length) return '—'; return ks.map(function(k){ var v=map[k]; return k+(v>=1000?(Math.round(v/100)/10)+'k':Math.round(v)); }).join('<br>'); }
   function renderRegionPulse(){
     var list=visibleShipments();
     var title='Region pulse — '+(currentRegion==='all'?'all regions':(regionLabel[currentRegion]||currentRegion));
