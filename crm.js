@@ -5129,7 +5129,7 @@ function injectCrmCss(){
 .crmv .pipe{display:flex;gap:5px;align-items:stretch;margin-bottom:7px}
 .crmv .pstep{flex:1;border-radius:8px;padding:6px 9px;font-size:10px;font-weight:600;min-width:0}
 .crmv .pstep b{display:block;font-family:var(--font-display);font-size:18px;font-weight:400;line-height:1.2}
-.crmv .pstep small{font-family:var(--font-mono);font-size:9.5px;opacity:.85;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crmv .pstep small{font-family:var(--font-mono);font-size:9.5px;opacity:.85;display:block;white-space:normal;overflow-wrap:break-word;line-height:1.4}
 .crmv .pleg{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--text3)}
 .crmv .pleg i{font-style:normal;display:inline-flex;align-items:center;gap:4px}
 .crmv .pleg b{width:8px;height:8px;border-radius:2px;display:inline-block}
