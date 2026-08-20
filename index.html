@@ -878,7 +878,21 @@ function CRMHost(props){
   var sLeadKey=useState('');        /* active leads sub-view key (ws/enr/rej/inbox/pip/cap/board/conv) */
   var sMob=useState(false); var mobNav=sMob[0], setMobNav=sMob[1];   /* mobile off-canvas sidebar open */
   var sInboxN=useState(0); var inboxN=sInboxN[0];   /* live unclaimed-inbox count → My Work sidebar badge */
-  var sSeason=useState(props.seasonId); var curSeason=sSeason[0], setCurSeason=sSeason[1];   /* viewed season (defaults to active); scopes Tracking & Claims */
+  /* Viewed season (scopes Tracking & Claims). Persists across reloads, but a pinned choice
+     expires after a gap of SEASON_PIN_TTL with the app closed → falls back to the active season.
+     Sliding window: each reopen within the window refreshes the pin. */
+  var SEASON_PIN_KEY='dalos_commercial_view_season', SEASON_PIN_TTL=4*60*60*1000;
+  var sSeason=useState(function(){
+    try{ var raw=localStorage.getItem(SEASON_PIN_KEY);
+      if(raw){ var p=JSON.parse(raw);
+        if(p&&p.id&&p.ts&&(Date.now()-p.ts)<=SEASON_PIN_TTL&&(cfg.seasons||[]).some(function(s){return s.id===p.id;})){
+          try{ localStorage.setItem(SEASON_PIN_KEY, JSON.stringify({id:p.id,ts:Date.now()})); }catch(e){}   /* slide the window on reopen */
+          return p.id;
+        } } }catch(e){}
+    return props.seasonId;
+  });
+  var curSeason=sSeason[0];
+  function setCurSeason(id){ sSeason[1](id); try{ localStorage.setItem(SEASON_PIN_KEY, JSON.stringify({id:id,ts:Date.now()})); }catch(e){} }
   var slugRef=React.useRef('dashboard');    /* current deep-link slug (single source of truth) */
   var readyRef=React.useRef(false);          /* true once boot routing is done — only then does onTab sync the URL */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
@@ -889,7 +903,7 @@ function CRMHost(props){
       /* No onHeader: the host renders its own left sidebar (below) instead of the lifted
          top tab-bar. onTab mirrors the active tab / lead sub-view so the sidebar highlights,
          and keeps the URL hash in sync so every tab is a shareable deep link. */
-      window.CRM.init({root:ref.current,supabase:supabase,seasonId:seasonId,isAdmin:isAdmin,currentUser:cu,config:cfg,perms:perms,
+      window.CRM.init({root:ref.current,supabase:supabase,seasonId:curSeason,isAdmin:isAdmin,currentUser:cu,config:cfg,perms:perms,
         onTab:function(t,k){ sTab[1](t); sLeadKey[1](k||'');
           var sl=crmSlugFor(t,k||''); if(!sl) return; slugRef.current=sl;
           if(readyRef.current){   /* keep URL in sync for in-content nav (e.g. a KPI card calling setTab) — but not during boot */
