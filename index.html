@@ -155,16 +155,18 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .crmv .cm-signout svg{width:14px;height:14px;opacity:.72;flex-shrink:0}
 .crmv .cm-ver{font-size:10px;color:var(--sidebar-muted);padding:3px 4px 0;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* ── Season context bar: always shows which season is open; calm when active, amber when not ── */
-.crmv .cm-seasonbar{display:flex;align-items:center;gap:9px;padding:8px 18px;font-size:12.5px;border-bottom:1px solid var(--border);flex-wrap:wrap;flex-shrink:0}
+.crmv .cm-seasonbar{display:flex;align-items:center;gap:9px;padding:8px 18px;font-size:12.5px;border-bottom:1px solid rgba(124,77,255,.2);flex-wrap:wrap;flex-shrink:0}
 .crmv .cm-seasonbar svg{width:14px;height:14px;flex-shrink:0;opacity:.9}
 .crmv .cm-seasonbar b{font-weight:700}
-.crmv .cm-seasonbar.is-active{background:var(--green-bg);color:var(--green);border-bottom-color:var(--green-border)}
-.crmv .cm-seasonbar.is-off{background:var(--amber-bg);color:var(--amber);border-bottom-color:var(--amber-border)}
-.crmv .cm-season-pill{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:2px 8px;border-radius:20px;background:var(--green);color:#fff}
-.crmv .cm-seasonbar.is-off .cm-season-pill{background:var(--amber)}
-.crmv .cm-season-sub{color:var(--text3);font-size:11px}
-.crmv .cm-season-switch{margin-left:auto;font-size:12px;font-weight:600;color:var(--accent);background:var(--card);border:1px solid var(--amber-border);border-radius:7px;padding:5px 11px;cursor:pointer;white-space:nowrap;font-family:var(--font-body)}
-.crmv .cm-season-switch:hover{background:#fff;border-color:var(--accent)}
+/* on-brand Pewter violet for the normal (active) state; Pewter amber caution when off-season */
+.crmv .cm-seasonbar.is-active{background:rgba(124,77,255,.10);color:#4f2bb8;border-bottom-color:rgba(124,77,255,.28)}
+.crmv .cm-seasonbar.is-off{background:rgba(183,121,31,.15);color:#8a5713;border-bottom-color:rgba(183,121,31,.42)}
+.crmv .cm-season-pill{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:2px 8px;border-radius:20px;color:#fff}
+.crmv .cm-seasonbar.is-active .cm-season-pill{background:#7c4dff}
+.crmv .cm-seasonbar.is-off .cm-season-pill{background:#b7791f}
+.crmv .cm-season-sub{color:var(--text3);font-size:11px;opacity:.9}
+.crmv .cm-season-switch{margin-left:auto;font-size:12px;font-weight:600;color:#6a3ded;background:#fff;border:1px solid rgba(124,77,255,.4);border-radius:7px;padding:5px 11px;cursor:pointer;white-space:nowrap;font-family:var(--font-body)}
+.crmv .cm-season-switch:hover{background:#f3efff;border-color:#7c4dff}
 @media(max-width:700px){.crmv .cm-seasonbar{padding-left:58px}.crmv .cm-season-sub{width:100%}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
