@@ -878,6 +878,7 @@ function CRMHost(props){
   var sLeadKey=useState('');        /* active leads sub-view key (ws/enr/rej/inbox/pip/cap/board/conv) */
   var sMob=useState(false); var mobNav=sMob[0], setMobNav=sMob[1];   /* mobile off-canvas sidebar open */
   var sInboxN=useState(0); var inboxN=sInboxN[0];   /* live unclaimed-inbox count → My Work sidebar badge */
+  var sSeason=useState(props.seasonId); var curSeason=sSeason[0], setCurSeason=sSeason[1];   /* viewed season (defaults to active); scopes Tracking & Claims */
   var slugRef=React.useRef('dashboard');    /* current deep-link slug (single source of truth) */
   var readyRef=React.useRef(false);          /* true once boot routing is done — only then does onTab sync the URL */
   var cfgRef=React.useRef(cfg); cfgRef.current=cfg;
@@ -947,7 +948,7 @@ function CRMHost(props){
     }
     return function(){ if(CRMHost._offHash) CRMHost._offHash(); if(window.CRM) window.CRM.teardown(); window.openInspPreviewGlobal=function(){}; window.openCqcPreviewGlobal=function(){}; sPopup[1](null); sCqcPopup[1](null); };
   },[]);
-  React.useEffect(function(){ if(window.CRM&&seasonId) window.CRM.setSeason(seasonId); },[seasonId]);
+  React.useEffect(function(){ if(window.CRM&&curSeason) window.CRM.setSeason(curSeason); },[curSeason]);   /* switch the whole CRM to the viewed season (reloads voyages/claims/redirects); leads are season-independent */
   /* Keep the My Work sidebar badge in sync with crm.js's live unclaimed-inbox count.
      Light poll (crm.js caps the underlying leads load to one fetch); only setState on change. */
   React.useEffect(function(){
@@ -993,7 +994,16 @@ function CRMHost(props){
             ce('span',{className:'logo-mark','aria-hidden':'true',dangerouslySetInnerHTML:{__html:SYMBOL_SVG}}),
             ce('div',{className:'logo-name'},'DalOS Commercial')
           ),
-          ce('div',{className:'logo-crop'},ce('span',{className:'crop-dot'}),'Commercial · 2025/26')
+          ce('div',{className:'logo-crop'},ce('span',{className:'crop-dot'}),'Commercial'),
+          /* Season selector — scopes Tracking & Claims to the chosen season (Leads are season-independent) */
+          ce('div',{className:'season-box'},
+            ce('div',{className:'season-box-lbl'},'Season'),
+            ce('select',{value:curSeason||'',onChange:function(e){ setCurSeason(e.target.value); },'aria-label':'Viewing season'},
+              (cfg.seasons||[]).filter(function(s){ return (s.name||'').toLowerCase()!=='dummy' || s.id===curSeason; })
+                .map(function(s){ return ce('option',{key:s.id,value:s.id}, (s.name||'—')+(s.active?' — Active':'')); })
+            )
+          ),
+          (function(){ var as=(cfg.seasons||[]).find(function(s){return s.active;}); return (as&&curSeason&&curSeason!==as.id)?ce('div',{key:'swarn',style:{fontSize:9,color:'#e6b566',margin:'6px 0 0',letterSpacing:'.02em',lineHeight:1.35}},'Viewing a non-active season — Tracking & Claims only'):null; })()
         ),
         ce('div',{className:'nav-label'},'Tracking & Claims'),
         MAIN_NAV.map(function(n){ return navItem('m-'+n.id,n.label,tab===n.id,function(){goTab(n.id);},n.icon); }),
