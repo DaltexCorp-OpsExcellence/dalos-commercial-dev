@@ -173,6 +173,7 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8"></script>
 <script src="crm.js?cb=48"></script>
+<script src="onboarding.js?cb=1"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -927,6 +928,9 @@ function CRMHost(props){
         }});
       window.openInspPreviewGlobal=function(id){loadInspPreview(id,sPopup[1],cfgRef.current);};
       window.openCqcPreviewGlobal=function(id){loadCqcPreview(id,sCqcPopup[1],cfgRef.current);};
+      /* onboarding: expose nav so the tour drives real navigation, then init (auto-starts on first run) */
+      window.__crmNav={toTab:goTab,toLead:goLead};
+      try{ if(window.DalosOnboarding) window.DalosOnboarding.init({role:(cu&&cu.role)||'',isAdmin:isAdmin,perms:perms}); }catch(e){}
       /* #capture[=token] deep link (home-screen icon) → open Show Mode straight away.
          Re-assert leadNav until the form is actually on screen (#cap_head); window.CRM exists
          before the island is MOUNTED, so trusting the method alone lands on the default tab. */
@@ -997,7 +1001,7 @@ function CRMHost(props){
     var ico=ICONS[iconKey]?ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ICONS[iconKey].map(function(d,i){return ce('path',{key:i,d:d});})):null;
     var kids=[ico,ce('span',{key:'lbl'},label)];
     if(badgeCount) kids.push(ce('span',{key:'badge',className:'nav-badge'},badgeCount>99?'99+':String(badgeCount)));
-    return ce('div',{key:k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},kids);
+    return ce('div',{key:k,'data-tour':k,className:'nav-item'+(active?' active':''),onClick:onClick,style:{userSelect:'none'}},kids);
   }
   /* guard against leaving a half-filled Show Mode capture via the sidebar (refresh/close is covered by beforeunload) */
   function capLeaveOk(toCap){
@@ -1044,6 +1048,9 @@ function CRMHost(props){
         isAdmin?navItem('m-regions','Region rules',tab==='regions',function(){goTab('regions');},'globe'):null,
         ce('div',{className:'nav-spacer',key:'spacer'}),
         ce('div',{className:'cm-foot',key:'foot'},
+          /* Help & guides — opens the onboarding help hub / replays the tour */
+          ce('button',{className:'cm-help','data-tour':'help',onClick:function(){ if(window.DalosOnboarding) window.DalosOnboarding.openHelp(); }},
+            ce('span',{'aria-hidden':'true',style:{fontSize:14,lineHeight:1}},'❔'),'Help & guides'),
           /* Workspace switch — above the user block, per the Vision footer pattern */
           ce('button',{className:'cm-ws',onClick:goWorkspace},
             ce('span',{className:'cm-ws-ic','aria-hidden':'true',dangerouslySetInnerHTML:{__html:ICON_WS}}),'Workspace'),
@@ -1073,11 +1080,11 @@ function CRMHost(props){
           var cal=ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},
             ce('path',{d:'M5 1a1 1 0 0 1 1 1v1h4V2a1 1 0 1 1 2 0v1h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h1V2a1 1 0 0 1 1-1Zm-2 6v6h10V7H3Z'}));
           if(isActive){
-            return ce('div',{className:'cm-seasonbar is-active'}, cal,
+            return ce('div',{className:'cm-seasonbar is-active','data-tour':'season'}, cal,
               ce('span',null,'Season ',ce('b',null,name)),
               ce('span',{className:'cm-season-pill'},'Active'));
           }
-          return ce('div',{className:'cm-seasonbar is-off'}, cal,
+          return ce('div',{className:'cm-seasonbar is-off','data-tour':'season'}, cal,
             ce('span',null,'Viewing ',ce('b',null,name)),
             ce('span',{className:'cm-season-pill'},'Not active'),
             ce('span',{className:'cm-season-sub'},'Tracking & Claims are scoped to this season · Leads are unaffected'),
