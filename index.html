@@ -154,6 +154,18 @@ input,select,textarea{font-family:var(--font-body);font-size:13px;color:var(--te
 .crmv .cm-signout:hover{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
 .crmv .cm-signout svg{width:14px;height:14px;opacity:.72;flex-shrink:0}
 .crmv .cm-ver{font-size:10px;color:var(--sidebar-muted);padding:3px 4px 0;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ── Season context bar: always shows which season is open; calm when active, amber when not ── */
+.crmv .cm-seasonbar{display:flex;align-items:center;gap:9px;padding:8px 18px;font-size:12.5px;border-bottom:1px solid var(--border);flex-wrap:wrap;flex-shrink:0}
+.crmv .cm-seasonbar svg{width:14px;height:14px;flex-shrink:0;opacity:.9}
+.crmv .cm-seasonbar b{font-weight:700}
+.crmv .cm-seasonbar.is-active{background:var(--green-bg);color:var(--green);border-bottom-color:var(--green-border)}
+.crmv .cm-seasonbar.is-off{background:var(--amber-bg);color:var(--amber);border-bottom-color:var(--amber-border)}
+.crmv .cm-season-pill{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:2px 8px;border-radius:20px;background:var(--green);color:#fff}
+.crmv .cm-seasonbar.is-off .cm-season-pill{background:var(--amber)}
+.crmv .cm-season-sub{color:var(--text3);font-size:11px}
+.crmv .cm-season-switch{margin-left:auto;font-size:12px;font-weight:600;color:var(--accent);background:var(--card);border:1px solid var(--amber-border);border-radius:7px;padding:5px 11px;cursor:pointer;white-space:nowrap;font-family:var(--font-body)}
+.crmv .cm-season-switch:hover{background:#fff;border-color:var(--accent)}
+@media(max-width:700px){.crmv .cm-seasonbar{padding-left:58px}.crmv .cm-season-sub{width:100%}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -1016,8 +1028,7 @@ function CRMHost(props){
               (cfg.seasons||[]).filter(function(s){ return (s.name||'').toLowerCase()!=='dummy' || s.id===curSeason; })
                 .map(function(s){ return ce('option',{key:s.id,value:s.id}, (s.name||'—')+(s.active?' — Active':'')); })
             )
-          ),
-          (function(){ var as=(cfg.seasons||[]).find(function(s){return s.active;}); return (as&&curSeason&&curSeason!==as.id)?ce('div',{key:'swarn',style:{fontSize:9,color:'#e6b566',margin:'6px 0 0',letterSpacing:'.02em',lineHeight:1.35}},'Viewing a non-active season — Tracking & Claims only'):null; })()
+          )
         ),
         ce('div',{className:'nav-label'},'Tracking & Claims'),
         MAIN_NAV.map(function(n){ return navItem('m-'+n.id,n.label,tab===n.id,function(){goTab(n.id);},n.icon); }),
@@ -1050,7 +1061,28 @@ function CRMHost(props){
       ),
       /* Content root — crm.js mounts template() (.subbar + .page) here (descendant of .crmv
          so scoped styles apply). Flex column so .page scrolls internally. */
-      ce('div',{ref:ref,className:'cm-content',style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflowY:'auto',overflowX:'hidden'}})
+      ce('div',{className:'cm-main',style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}},
+        /* season context bar — always shows which season is open (calm when active, amber + quick switch when not) */
+        (function(){
+          var seasons=cfg.seasons||[], cur=null, act=null, i;
+          for(i=0;i<seasons.length;i++){ if(seasons[i].id===curSeason) cur=seasons[i]; if(seasons[i].active) act=seasons[i]; }
+          var isActive = cur ? !!cur.active : true;
+          var name = cur ? cur.name : (act?act.name:'—');
+          var cal=ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},
+            ce('path',{d:'M5 1a1 1 0 0 1 1 1v1h4V2a1 1 0 1 1 2 0v1h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h1V2a1 1 0 0 1 1-1Zm-2 6v6h10V7H3Z'}));
+          if(isActive){
+            return ce('div',{className:'cm-seasonbar is-active'}, cal,
+              ce('span',null,'Season ',ce('b',null,name)),
+              ce('span',{className:'cm-season-pill'},'Active'));
+          }
+          return ce('div',{className:'cm-seasonbar is-off'}, cal,
+            ce('span',null,'Viewing ',ce('b',null,name)),
+            ce('span',{className:'cm-season-pill'},'Not active'),
+            ce('span',{className:'cm-season-sub'},'Tracking & Claims are scoped to this season · Leads are unaffected'),
+            act?ce('button',{className:'cm-season-switch',onClick:function(){ setCurSeason(act.id); }},'Back to '+act.name+' →'):null);
+        })(),
+        ce('div',{ref:ref,className:'cm-content',style:{flex:1,minWidth:0,minHeight:0,display:'flex',flexDirection:'column',overflowY:'auto',overflowX:'hidden'}})
+      )
     ),
     sPopup[0]&&ce(InspPreviewModal,{popup:sPopup[0],onClose:function(){sPopup[1](null);}}),
     sCqcPopup[0]&&ce(CqcPreviewModal,{popup:sCqcPopup[0],config:cfg,onClose:function(){sCqcPopup[1](null);}})
