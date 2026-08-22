@@ -198,7 +198,7 @@ var DALOS_SUPABASE_URL='https://sfyjvgjwvtwkrnqrvqyc.supabase.co';
 var DALOS_SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNmeWp2Z2p3dnR3a3JucXJ2cXljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4NzIxNjYsImV4cCI6MjA5MDQ0ODE2Nn0.FjA75XZsp0Kx5Xam_rrnYoAHX4JHKey6vEFCH_zlMuQ';
 var supabase = window.supabase.createClient(DALOS_SUPABASE_URL, DALOS_SUPABASE_ANON);
 
-var WORKSPACE_URL='https://daltexcorp-opsexcellence.github.io/dalos-workspace-dev/';
+var WORKSPACE_URL=(/-dev|localhost|127\.0\.0\.1/.test(location.host+location.pathname)?'https://daltexcorp-opsexcellence.github.io/dalos-workspace-dev/':'https://daltexcorp-opsexcellence.github.io/dalos-workspace/');   /* workspace: -dev on staging, prod on prod — resolved by host */
 /* sidebar-footer icons + helpers */
 /* Workspace icon — 3x3 apps/dot grid (per Tarek's reference) */
 var ICON_WS='<svg viewBox="0 0 16 16" fill="currentColor"><rect x="1.4" y="1.4" width="3.4" height="3.4" rx=".8"/><rect x="6.3" y="1.4" width="3.4" height="3.4" rx=".8"/><rect x="11.2" y="1.4" width="3.4" height="3.4" rx=".8"/><rect x="1.4" y="6.3" width="3.4" height="3.4" rx=".8"/><rect x="6.3" y="6.3" width="3.4" height="3.4" rx=".8"/><rect x="11.2" y="6.3" width="3.4" height="3.4" rx=".8"/><rect x="1.4" y="11.2" width="3.4" height="3.4" rx=".8"/><rect x="6.3" y="11.2" width="3.4" height="3.4" rx=".8"/><rect x="11.2" y="11.2" width="3.4" height="3.4" rx=".8"/></svg>';
