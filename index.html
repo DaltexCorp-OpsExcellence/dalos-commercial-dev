@@ -1065,7 +1065,7 @@ function CRMHost(props){
           /* sign out */
           ce('button',{className:'cm-signout',onClick:signOut},
             ce('svg',{viewBox:'0 0 16 16',fill:'currentColor','aria-hidden':'true'},ce('path',{d:ICON_OUT1}),ce('path',{d:ICON_OUT2})),'Sign out'),
-          ce('div',{className:'cm-ver'},'DalOS Commercial · v0.1 · staging')
+          ce('div',{className:'cm-ver'},'DalOS Commercial · v0.1 · '+(/-dev|localhost|127\.0\.0\.1/.test(location.host+location.pathname)?'staging':'prod'))
         )
       ),
       /* Content root — crm.js mounts template() (.subbar + .page) here (descendant of .crmv
