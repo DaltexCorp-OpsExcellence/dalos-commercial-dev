@@ -1450,7 +1450,8 @@ window.CRM = (function(){
     var _cm=$('claimModal'); if(_cm) _cm.classList.add('crm-modal-loading');                        /* P1-1: block edits until the saved record loads (prevents overwriting typed input) */
     loadClaimDetail(s.claimId).then(function(d){
       if(_cm) _cm.classList.remove('crm-modal-loading');
-      if(!d.claim || !claimCtx || claimCtx.claimId!==s.claimId) return;   /* modal moved on */
+      if(!claimCtx || claimCtx.claimId!==s.claimId) return;   /* modal moved on */
+      if(!d.claim){ closeModal('claimModal'); toast('That claim could no longer be loaded — it may have been removed or cancelled. Refresh the list.'); if(s){ s.claim=null; s.claimId=null; s.claimRefRaw=null; } render(); return; }
       claimLoaded=d.claim; claimFiles=d.files;
       var c=d.claim;
       setVal('blNumber',c.bl_number); setVal('claimValue',c.claimed_value);
