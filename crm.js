@@ -486,18 +486,25 @@ window.CRM = (function(){
       if(qq) list=list.filter(function(x){return [x.claim_ref,x.client,x.sub_client,x.container_number,x.invoice_no].join(' ').toLowerCase().indexOf(qq)>=0;});
       var head='<div class="section-title"><span class="section-title-bar"></span>Claim Approvals <span class="section-count">'+list.length+' settlement'+(list.length===1?'':'s')+' awaiting approval</span></div>';
       if(!list.length){ vc.innerHTML=head+thrPanel+'<div class="table-wrap"><div class="empty-state">No settlements awaiting approval in this scope.<div class="cell-sub" style="margin-top:6px">Settlements appear here when the commercial team submits them for approval.</div></div></div>'; return; }
+      function _ncn(v){ return String(v||'').toUpperCase().replace(/\s+/g,' ').trim(); }
+      function _shipInv(cn){ var k=_ncn(cn); for(var i=0;i<SHIPMENTS.length;i++){ if(_ncn(SHIPMENTS[i].cn)===k) return SHIPMENTS[i].invoice||''; } return ''; }
       var rows=list.map(function(x){
         var claimed=x.claimed_value!=null?(Number(x.claimed_value).toLocaleString()+' '+esc(x.claimed_currency||'')):'—';
         var proposed=x.settled_value!=null?('<b>'+Number(x.settled_value).toLocaleString()+' '+esc(x.settled_currency||x.claimed_currency||'')+'</b>'):'—';
-        var where=x.anchor==='invoice'?('inv '+esc(x.invoice_no||'—')):esc(x.container_number||'—');
+        var inv=x.invoice_no||_shipInv(x.container_number)||'—';
+        var isRedir=REDIR_IN&&REDIR_IN.some(function(ri){ return _ncn(ri.originCn)===_ncn(x.container_number); });
+        var redirChip=isRedir?' <span class="badge b-neutral" style="border-color:var(--green-border);color:var(--accent);background:var(--green-bg)" title="This container has a redirect — see its track history in the review">redirected</span>':'';
+        var invCell='<span class="lot">'+esc(inv)+'</span>'+(x.anchor==='invoice'?'<div class="cell-sub">invoice claim</div>':'');
+        var contCell=x.anchor==='invoice'?'<span class="cell-sub">multiple containers</span>':('<span class="lot">'+esc(x.container_number||'—')+'</span>'+redirChip);
         return '<tr class="click" role="button" tabindex="0" data-crm-act="reviewClaim" data-crm-key="'+esc(x.container_number||'')+'"><td><span class="lot">'+esc(x.claim_ref||'—')+'</span></td>'
           +'<td>'+esc(x.client||'—')+'<div class="cell-sub">'+esc(x.sub_client||'')+' · '+esc(regionLabel[x.region_id]||x.region_id||'')+'</div></td>'
-          +'<td class="lot cell-sub">'+where+'</td>'
+          +'<td>'+invCell+'</td>'
+          +'<td>'+contCell+'</td>'
           +'<td class="right"><span class="cell-sub" style="text-decoration:line-through">'+claimed+'</span> → '+proposed+(x.resolution_type?'<div class="cell-sub">'+esc(x.resolution_type)+'</div>':'')+'</td>'
           +'<td class="cell-sub">'+esc(fmtDate(x.settlement_submitted_at)||'')+'</td>'
           +'<td class="right"><button class="btn btn-primary btn-sm" data-crm-act="reviewClaim" data-crm-key="'+esc(x.container_number||'')+'">Review</button></td></tr>';
       }).join('');
-      vc.innerHTML=head+thrPanel+'<div class="hint" style="margin:-4px 0 10px">Approve to close &amp; commit the settlement, or reject with a reason to return it to the commercial team.</div><div class="table-wrap"><table class="wl"><thead><tr><th>Claim</th><th>Client</th><th>On</th><th class="right">Claimed → proposed</th><th>Submitted</th><th class="right">Action</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+      vc.innerHTML=head+thrPanel+'<div class="hint" style="margin:-4px 0 10px">Approve to close &amp; commit the settlement, or reject with a note to return it to the commercial team.</div><div class="table-wrap"><table class="wl"><thead><tr><th>Claim</th><th>Client</th><th>Invoice</th><th>Container</th><th class="right">Claimed → proposed</th><th>Submitted</th><th class="right">Action</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
     }).catch(function(e){ if(currentTab==='approvals') vc.innerHTML='<div class="empty-state">Failed to load approvals — '+esc((e&&e.message)||e)+'</div>'; });
   }
   /* ── Clean ── */
@@ -1143,6 +1150,17 @@ window.CRM = (function(){
   /* ── Claim modal ── */
   var claimCtx=null, claimLifecycle='open', claimScope='whole';
   function buildWholeSum(s){ var vars=s.varieties||[s.variety]; var vtxt=vars.length>1?'all varieties ('+vars.join(', ')+')':vars[0]; return '<span class="ev-check">✓</span><span>Covers the <b>whole container</b> — '+esc(vtxt)+' · '+s.cartons.toLocaleString()+' ctn</span>'; }
+  /* Read-only affected part-loads for an INVOICE-anchored claim — grouped by container (approver's mixed view). */
+  function invoiceClaimRowsHtml(rows){
+    var by={}, order=[];
+    (rows||[]).forEach(function(r){ var cn=r.ship_container||'—'; if(!by[cn]){by[cn]=[];order.push(cn);} by[cn].push(r); });
+    if(!order.length) return '<div class="cell-sub">No part-load rows recorded.</div>';
+    return order.map(function(cn){
+      var ct=0,tn=0; by[cn].forEach(function(r){ ct+=num(r.cartons)||0; tn+=num(r.net_tons)||0; });
+      var items=by[cn].map(function(r){ return '<div class="row-opt" style="cursor:default"><span class="row-opt-main"><b>'+esc(r.variety||'—')+'</b> · <span class="mono">'+esc(r.farm||'—')+'</span> · '+esc(r.packhouse||'—')+(r.carton_type?' · '+esc(r.carton_type):'')+'</span><span class="row-opt-qty">'+(num(r.cartons)||0).toLocaleString()+' ctn · '+(num(r.net_tons)||0).toLocaleString()+' t</span></div>'; }).join('');
+      return '<div style="margin-bottom:10px"><div class="cell-sub mono" style="margin-bottom:4px">Container <b>'+esc(cn)+'</b> · '+ct.toLocaleString()+' ctn · '+tn.toLocaleString()+' t</div>'+items+'</div>';
+    }).join('');
+  }
   function buildPartFields(s){
     var citrus=shipProduct(s)==='Citrus';
     var rowsHtml=(s.rows||[]).map(function(r){ return '<label class="row-opt"><input type="checkbox" data-ctn="'+num(r.cartons)+'" data-nt="'+num(r.netTons)+'" onchange="CRM.rowSelChanged()"/><span class="row-opt-main"><b>'+esc(r.variety)+'</b> · '+esc(r.mix)+' · <span class="mono">'+esc(r.farm)+'</span> · '+esc(r.ph)+' · '+esc(r.ctype)+'</span><span class="row-opt-qty">'+num(r.cartons).toLocaleString()+' ctn · '+num(r.netTons).toLocaleString()+' t</span></label>'; }).join('');
@@ -1157,31 +1175,57 @@ window.CRM = (function(){
   }
   /* Status/settlement UI — driven by the approval funnel (open → pending → closed), not a free toggle. */
   function _bnr(kind,html){ var map={warn:['var(--amber-bg)','var(--amber-border)','var(--amber)'],ok:['var(--green-bg)','var(--green-border)','var(--green)'],bad:['var(--red-bg)','var(--red-border)','var(--red)']}; var c=map[kind]||['var(--bg2)','var(--border)','var(--text2)']; return '<div style="background:'+c[0]+';border:1px solid '+c[1]+';color:'+c[2]+';padding:8px 10px;border-radius:8px;margin-bottom:8px;font-size:12px">'+html+'</div>'; }
+  /* Lock the whole claim form for read-only review (pending/closed). Approver note + buttons live in
+     #settlementBlock, which stays interactive. */
+  function setClaimReadonly(on){
+    var m=$('claimModal'); var body=m&&m.querySelector('.modal-body'); if(!body) return;
+    body.classList.toggle('claim-ro', !!on);
+    if(on){
+      [].forEach.call(body.querySelectorAll('input,select,textarea'),function(el){
+        if(el.closest && el.closest('#settlementBlock')) return;   /* leave the settlement/approver area alone */
+        if(!el.disabled){ el.setAttribute('disabled','disabled'); el.setAttribute('data-ro-dis','1'); }
+      });
+    } else {
+      [].forEach.call(body.querySelectorAll('[data-ro-dis]'),function(el){ el.removeAttribute('disabled'); el.removeAttribute('data-ro-dis'); });
+    }
+  }
+  function beginSettlement(){
+    var f=$('settlementForm'); if(f) f.style.display='block';
+    var i=$('settlementIntro'); if(i) i.style.display='none';
+    var res=$('claimResolution'), sv=$('settledValue'); if(res) res.disabled=false; if(sv){ sv.disabled=false; }
+    var h=$('settlementHint'); if(h) h.innerHTML=(CLAIM_SETTINGS.threshold>0?('Auto-closes if ≤ '+Number(CLAIM_SETTINGS.threshold).toLocaleString()+(CLAIM_SETTINGS.currency?' '+CLAIM_SETTINGS.currency:'')+'; above that an approver reviews it before the claim closes.'):'Every settlement is reviewed by an approver before the claim closes.');
+    var a=$('settlementActions'); if(a) a.innerHTML='<button class="btn btn-primary btn-sm" onclick="CRM.submitSettlement()">Submit for approval →</button> <button class="btn btn-secondary btn-sm" onclick="CRM.cancelSettlement()">Cancel</button>';
+    if(sv) sv.focus();
+  }
+  function cancelSettlement(){ var f=$('settlementForm'); if(f) f.style.display='none'; renderClaimStatusUI((claimLoaded&&claimLoaded.status)||'open',claimLoaded); }
   function renderClaimStatusUI(status,c){
     var sl=$('claimStatusLine'); if(!sl) return;
-    var blk=$('settlementBlock'), ban=$('settlementBanner'), act=$('settlementActions'), hint=$('settlementHint'), save=$('claimSaveBtn'), res=$('claimResolution'), sv=$('settledValue');
+    var blk=$('settlementBlock'), ban=$('settlementBanner'), intro=$('settlementIntro'), form=$('settlementForm'), act=$('settlementActions'), save=$('claimSaveBtn'), cancelB=$('claimCancelBtn'), redirB=$('claimRedirectBtn');
     var hasId=!!(claimCtx&&claimCtx.claimId);
     var st=(status==='new'||!hasId)?'new':(status||'open');
     var chip={'new':['b-neutral','New claim'],open:['b-fail','Open'],pending:['b-warn','Settlement pending approval'],closed:['b-neutral','Closed'],cancelled:['b-neutral','Cancelled']}[st]||['b-fail','Open'];
-    sl.innerHTML='<span class="badge '+chip[0]+'">'+chip[1]+'</span>'+(st==='new'?' <span class="cell-sub">— will be raised as Open (active)</span>':'');
+    sl.innerHTML='<span class="badge '+chip[0]+'">'+chip[1]+'</span>'+(st==='new'?' <span class="cell-sub">— will be raised as Open (active)</span>':(st==='open'?' <span class="cell-sub">— active; settle it when you\'ve agreed a value with the client</span>':''));
     if(blk) blk.style.display=(st==='new')?'none':'block';
+    if(ban) ban.innerHTML=''; if(intro) intro.innerHTML=''; if(act) act.innerHTML=''; if(form) form.style.display='none';
+    var readonly=(st==='pending'||st==='closed');
+    setClaimReadonly(readonly);
     if(save) save.style.display=(st==='new'||st==='open')?'':'none';
-    var editable=(st==='open');
-    if(res) res.disabled=!editable; if(sv) sv.disabled=!editable;
-    if(ban) ban.innerHTML=''; if(hint) hint.innerHTML=''; if(act) act.innerHTML='';
+    if(cancelB) cancelB.style.display=(st==='new'||st==='open')?'':'none';
+    if(redirB) redirB.style.display=(st==='new'||st==='open')?'':'none';
     var cur=(c&&(c.settled_currency||c.claimed_currency))||($('claimCurrency')&&$('claimCurrency').value)||'USD';
     function money(v){ return v==null?'—':(Number(v).toLocaleString()+' '+cur); }
     if(st==='open'){
-      if(c&&c.rejection_reason&&ban) ban.innerHTML=_bnr('bad','↩ Settlement returned for revision — '+esc(c.rejection_reason)+'. Adjust the settled value and resubmit.');
-      if(hint) hint.innerHTML='Enter the agreed settled value, then submit it for approval. '+(CLAIM_SETTINGS.threshold>0?('Auto-closes if ≤ '+Number(CLAIM_SETTINGS.threshold).toLocaleString()+(CLAIM_SETTINGS.currency?' '+CLAIM_SETTINGS.currency:'')+'; above that an approver reviews it.'):'Every settlement is reviewed by an approver before the claim closes.');
-      if(act) act.innerHTML='<button class="btn btn-primary btn-sm" onclick="CRM.submitSettlement()">Submit for approval →</button>';
+      if(c&&c.rejection_reason&&ban) ban.innerHTML=_bnr('bad','↩ Settlement returned for revision — '+esc(c.rejection_reason)+'. Revise and resubmit when ready.');
+      if(intro) intro.innerHTML='<button class="btn btn-primary btn-sm" onclick="CRM.beginSettlement()">'+(c&&c.rejection_reason?'Revise settlement &amp; resubmit →':'Record settlement &amp; submit for approval →')+'</button><div class="hint" style="margin-top:6px">Do this once a settled value is agreed with the client — the claim stays <b>Open</b> until then.</div>';
     } else if(st==='pending'){
       var subBy=c&&c.settlement_submitted_by, mine=subBy&&USER&&USER.id&&subBy===USER.id;
-      if(ban) ban.innerHTML=_bnr('warn','⏳ Proposed settlement <b>'+money(c&&c.settled_value)+'</b>'+(c&&c.resolution_type?' · '+esc(c.resolution_type):'')+(c&&c.settlement_submitted_at?' · submitted '+esc(fmtDate(c.settlement_submitted_at)||''):'')+' — awaiting approval.');
+      if(ban) ban.innerHTML=_bnr('warn','⏳ Proposed settlement <b>'+money(c&&c.settled_value)+'</b>'+(c&&c.resolution_type?' · '+esc(c.resolution_type):'')+(c&&c.settlement_submitted_at?' · submitted '+esc(fmtDate(c.settlement_submitted_at)||''):'')+' — awaiting approval. Client claimed '+money(c&&c.claimed_value)+'.');
       if(act){
         if(IS_APPROVER && !(mine && !IS_ADMIN)){
-          act.innerHTML='<button class="btn btn-primary btn-sm" onclick="CRM.claimApprove()">Approve &amp; close →</button> <button class="btn btn-secondary btn-sm" onclick="CRM.claimRejectToggle()">Reject</button>'
-            +'<div id="claimRejectBox" style="display:none;margin-top:8px"><textarea class="form-ta" id="claimRejectReason" style="height:52px;resize:vertical" placeholder="Reason for rejection (required)"></textarea><div style="margin-top:6px"><button class="btn btn-danger btn-sm" onclick="CRM.claimReject()">Confirm rejection</button></div></div>';
+          act.innerHTML='<div class="form-label" style="margin-bottom:4px">Decision note</div>'
+            +'<textarea class="form-ta" id="claimDecisionNote" style="height:56px;resize:vertical" placeholder="Note — optional to approve, required to reject"></textarea>'
+            +'<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary btn-sm" onclick="CRM.claimApprove()">Approve &amp; close →</button><button class="btn btn-danger btn-sm" onclick="CRM.claimReject()">Reject &amp; return</button></div>'
+            +'<div class="hint" style="margin-top:6px">You can approve or reject only — the claim details are locked for review.</div>';
         } else if(mine){ act.innerHTML='<div class="cell-sub">You submitted this settlement — another approver must review it.</div>'; }
         else { act.innerHTML='<div class="cell-sub">Awaiting an approver.</div>'; }
       }
@@ -1189,7 +1233,6 @@ window.CRM = (function(){
       if(ban) ban.innerHTML=_bnr('ok','✓ Settled <b>'+money(c&&c.settled_value)+'</b>'+(c&&c.resolution_type?' · '+esc(c.resolution_type):'')+(c&&c.closed_at?' · closed '+esc(fmtDate(c.closed_at)||''):'')+'.');
     }
   }
-  function claimRejectToggle(){ var b=$('claimRejectBox'); if(b){ b.style.display=b.style.display==='none'?'block':'none'; var r=$('claimRejectReason'); if(r&&b.style.display!=='none') r.focus(); } }
   function submitSettlement(){
     var s=claimCtx; if(!s||!s.claimId){ toast('Save the claim first, then submit its settlement.'); return; }
     if(claimBusy) return;
@@ -1207,9 +1250,9 @@ window.CRM = (function(){
       reload();
     }).catch(function(e){ claimBusy=false; toast(claimErr(e)); });
   }
-  function _reviewSettlement(id,decision,reason,loaded){ return SB.rpc('crm_review_settlement',{payload:{ id:id, decision:decision, reason:reason||null, loaded_version:loaded||null }}); }
-  function claimApprove(){ var s=claimCtx; if(!s||!s.claimId||claimBusy) return; claimBusy=true; _reviewSettlement(s.claimId,'approve',null,(claimLoaded&&claimLoaded.updated_at)||null).then(function(r){ claimBusy=false; if(r&&r.error){ toast(claimErr(r.error)); return; } closeModal('claimModal'); toast('Approved &amp; closed · <b>'+esc((r.data&&r.data.claim_ref)||'')+'</b>'); reload(); }).catch(function(e){ claimBusy=false; toast(claimErr(e)); }); }
-  function claimReject(){ var s=claimCtx; if(!s||!s.claimId||claimBusy) return; var reason=($('claimRejectReason')&&$('claimRejectReason').value||'').trim(); if(!reason){ toast('A reason is required to reject.'); if($('claimRejectReason')) $('claimRejectReason').focus(); return; } claimBusy=true; _reviewSettlement(s.claimId,'reject',reason,(claimLoaded&&claimLoaded.updated_at)||null).then(function(r){ claimBusy=false; if(r&&r.error){ toast(claimErr(r.error)); return; } closeModal('claimModal'); toast('Settlement rejected — returned to the commercial team.'); reload(); }).catch(function(e){ claimBusy=false; toast(claimErr(e)); }); }
+  function _reviewSettlement(id,decision,reason,loaded,note){ return SB.rpc('crm_review_settlement',{payload:{ id:id, decision:decision, reason:reason||null, loaded_version:loaded||null, event_detail:note||null }}); }
+  function claimApprove(){ var s=claimCtx; if(!s||!s.claimId||claimBusy) return; var note=($('claimDecisionNote')&&$('claimDecisionNote').value||'').trim(); claimBusy=true; _reviewSettlement(s.claimId,'approve',null,(claimLoaded&&claimLoaded.updated_at)||null, note?('approved · '+note):null).then(function(r){ claimBusy=false; if(r&&r.error){ toast(claimErr(r.error)); return; } closeModal('claimModal'); toast('Approved &amp; closed · <b>'+esc((r.data&&r.data.claim_ref)||'')+'</b>'); reload(); }).catch(function(e){ claimBusy=false; toast(claimErr(e)); }); }
+  function claimReject(){ var s=claimCtx; if(!s||!s.claimId||claimBusy) return; var reason=($('claimDecisionNote')&&$('claimDecisionNote').value||'').trim(); if(!reason){ toast('A note is required to reject — tell the commercial team why.'); if($('claimDecisionNote')) $('claimDecisionNote').focus(); return; } claimBusy=true; _reviewSettlement(s.claimId,'reject',reason,(claimLoaded&&claimLoaded.updated_at)||null,null).then(function(r){ claimBusy=false; if(r&&r.error){ toast(claimErr(r.error)); return; } closeModal('claimModal'); toast('Settlement rejected — returned to the commercial team.'); reload(); }).catch(function(e){ claimBusy=false; toast(claimErr(e)); }); }
   function setScope(sc){
     claimScope=sc;
     $('scopeWhole').className='pill'+(sc==='whole'?' sel':'');
@@ -1392,6 +1435,17 @@ window.CRM = (function(){
     var _dz=$('dropzone'); if(_dz){ _dz.classList.toggle('dz-locked', !s.claimId); }               /* P1-4: no dropzone until the claim row exists */
     openModal('claimModal');
 
+    /* Container track history (shipped → arrived → returned → redirected → claim events) — esp. for redirected/returned containers */
+    if($('claimTimeline')){
+      $('claimTimeline').innerHTML='<div class="hint">Loading track history…</div>';
+      SB.rpc('crm_container_timeline',{p_season:SEASON,p_container:s.cn}).then(function(res){
+        if(!claimCtx||claimCtx.key!==s.key){ return; }
+        var el=$('claimTimeline'); if(!el) return;
+        if(res&&res.error){ el.innerHTML='<div class="hint">Track history unavailable.</div>'; return; }
+        el.innerHTML=renderTimeline((res&&res.data)||[]);
+      }).catch(function(){ var el=$('claimTimeline'); if(el) el.innerHTML='<div class="hint">Track history unavailable.</div>'; });
+    }
+
     if(!s.claimId) return;
     var _cm=$('claimModal'); if(_cm) _cm.classList.add('crm-modal-loading');                        /* P1-1: block edits until the saved record loads (prevents overwriting typed input) */
     loadClaimDetail(s.claimId).then(function(d){
@@ -1414,10 +1468,16 @@ window.CRM = (function(){
       var pf2=$('potFlag'); if(pf2){ pf2.checked=!!c.potential; togglePotential(); }
       renderClaimStatusUI(c.status,c);
       if(c.claim_pct!=null) claimPctManual=true;
+      /* Invoice-anchored claim: show affected part-loads grouped by container (read-only, mixed view). */
+      if(c.anchor==='invoice'){
+        setScope('part');
+        var _conts=Object.keys((d.rows||[]).reduce(function(a,r){a[r.ship_container||'—']=1;return a;},{}));
+        if($('partBody')) $('partBody').innerHTML='<div class="hint" style="margin-bottom:8px">Invoice claim — affected part-loads across <b>'+_conts.length+'</b> container'+(_conts.length===1?'':'s')+':</div>'+invoiceClaimRowsHtml(d.rows);
+      }
       /* P1: restore the saved scope + re-tick the claimed composition rows. Without this, openClaim's
          unconditional setScope('whole') meant editing a part-of-load claim silently re-saved it as a
          whole-container claim and dropped the variety/farm/packhouse row pins. */
-      if(c.scope==='part'){
+      else if(c.scope==='part'){
         setScope('part');
         ensureRows(s).then(function(){
           if(!claimCtx||claimCtx.claimId!==s.claimId) return;
@@ -1431,7 +1491,7 @@ window.CRM = (function(){
           });
         });
       }
-      $('claimSub').textContent=(c.claim_ref||'Claim')+' · '+s.cn+' · '+s.client;
+      $('claimSub').textContent=(c.claim_ref||'Claim')+' · '+(c.anchor==='invoice'?('invoice '+(c.invoice_no||'—')):s.cn)+' · '+s.client;
       $('claimTitle').textContent='Claim '+(c.claim_ref||'');
       $('claimRaised').textContent=fmtDate(c.raised_at)||'on file';
       if($('claimClosedOn')) $('claimClosedOn').textContent=c.closed_at?(fmtDate(c.closed_at)||'—'):'—';
@@ -1806,7 +1866,7 @@ window.CRM = (function(){
     +'<div class="modal-bg" id="claimModal"><div class="modal"><div class="modal-head"><span class="modal-x" role="button" tabindex="0" aria-label="Close" onclick="CRM.requestCloseModal(\'claimModal\')">&times;</span><div class="modal-title" id="claimTitle">Raise a claim</div><div class="modal-sub" id="claimSub">—</div></div><div class="modal-body">'
     +'<div class="msec" style="border-top:none;padding-top:0;margin-top:0">Status</div><div id="claimStatusLine" style="margin-bottom:10px"></div>'
     +'<div class="grid3" style="margin-bottom:10px"><div><label class="form-label">Raised</label><div class="ctx-val" id="claimRaised">—</div></div><div><label class="form-label">Response deadline</label><input class="form-input" type="date" id="claimDeadline"/></div><div><label class="form-label">Closed</label><div class="ctx-val" id="claimClosedOn">—</div></div></div>'
-    +'<div class="closing-block" id="settlementBlock" style="display:none"><div class="msec" style="border-top:none;padding-top:0;margin-top:0">Settlement</div><div id="settlementBanner"></div><div class="grid2"><div><label class="form-label">Resolution type</label><select class="form-select" id="claimResolution"><option>Credit note</option><option>Replacement shipment</option><option>Price adjustment</option><option>Goodwill gesture</option><option>Insurance claim</option><option>Rejected — no fault</option></select></div><div><label class="form-label">Settled value</label><input class="form-input mono" id="settledValue" inputmode="decimal" placeholder="agreed amount"/></div></div><div class="hint" id="settlementHint"></div><div id="settlementActions" style="margin-top:10px"></div></div>'
+    +'<div class="closing-block" id="settlementBlock" style="display:none"><div class="msec" style="border-top:none;padding-top:0;margin-top:0">Settlement</div><div id="settlementBanner"></div><div id="settlementIntro"></div><div id="settlementForm" style="display:none"><div class="grid2"><div><label class="form-label">Resolution type</label><select class="form-select" id="claimResolution"><option>Credit note</option><option>Replacement shipment</option><option>Price adjustment</option><option>Goodwill gesture</option><option>Insurance claim</option><option>Rejected — no fault</option></select></div><div><label class="form-label">Settled value</label><input class="form-input mono" id="settledValue" inputmode="decimal" placeholder="agreed amount"/></div></div><div class="hint" id="settlementHint"></div></div><div id="settlementActions" style="margin-top:10px"></div></div>'
     +'<div class="msec">Claim details</div><div class="form-row" style="margin-bottom:10px"><label class="form-label">B/L number <span style="color:var(--red)">*</span></label><input class="form-input mono" id="blNumber" aria-required="true" aria-describedby="blHint" placeholder="e.g. MAEU236451078"/><div class="hint" id="blHint" style="display:none;color:var(--red)">B/L number is required to save a claim.</div></div>'
     +'<div class="grid2" style="margin-bottom:10px"><div><label class="form-label">Reason</label><select class="form-select" id="claimReason"><option>Decay / rot on arrival</option><option>Temperature abuse in transit</option><option>Soft / overripe berries</option><option>Shatter / loose berries</option><option>Short weight</option><option>Wrong variety / spec</option><option>Late arrival / missed market</option><option>Documentation</option><option>Other</option></select></div><div><label class="form-label">Client\'s claim ref <span style="text-transform:none;font-weight:400;color:var(--text3)">(optional)</span></label><input class="form-input mono" id="claimClientRef" placeholder="their reference #"/></div></div>'
     +'<div class="grid2" style="margin-bottom:0"><div><label class="form-label">Claimant</label><input class="form-input" id="claimClaimant" placeholder="contact name"/></div><div><label class="form-label">Claimant email</label><input class="form-input" id="claimClaimantEmail" type="email" placeholder="name@client.com"/></div></div>'
@@ -1817,8 +1877,9 @@ window.CRM = (function(){
     +'<label class="dropzone" id="dropzone"><input type="file" id="evFile" accept=".pdf,image/*" multiple style="display:none"/><div class="dz-ic">⬆</div><div class="dz-text"><b>Drop a file</b> or <span class="dz-browse">browse</span></div><div class="dz-sub">PDF, image or screenshot — client email, arrival photos, rejection note</div></label><div class="ev-files" id="evFiles"></div>'
     +'<div class="ev-ref" id="claimRef"></div><div class="hint">The CQC report is the quality evidence; the export inspection is reference only.</div>'
     +'<div class="msec">Notes</div><textarea class="form-ta" id="claimNotes" style="height:60px;resize:vertical" placeholder="Client rejected 2 pallets on arrival; decay concentrated in stems…"></textarea>'
+    +'<div class="msec">Container timeline</div><div class="audit" id="claimTimeline"><div class="hint">—</div></div>'
     +'<div class="msec">History</div><div class="audit" id="claimAudit"></div>'
-    +'</div><div class="modal-foot" style="justify-content:space-between"><span class="link-btn" style="color:var(--red)" title="Removes a claim opened in error — kept in history as Cancelled" onclick="CRM.cancelClaim()">Cancel claim</span><span style="display:flex;gap:8px"><button class="btn btn-secondary" title="Redirect these goods to another client — links this claim if it is saved" onclick="CRM.redirectFromClaim()">Redirect goods →</button><button class="btn btn-secondary" onclick="CRM.requestCloseModal(\'claimModal\')">Close</button><button class="btn btn-primary" id="claimSaveBtn" onclick="CRM.saveClaim()">Save claim</button></span></div></div></div>';
+    +'</div><div class="modal-foot" style="justify-content:space-between"><span class="link-btn" id="claimCancelBtn" style="color:var(--red)" title="Removes a claim opened in error — kept in history as Cancelled" onclick="CRM.cancelClaim()">Cancel claim</span><span style="display:flex;gap:8px"><button class="btn btn-secondary" id="claimRedirectBtn" title="Redirect these goods to another client — links this claim if it is saved" onclick="CRM.redirectFromClaim()">Redirect goods →</button><button class="btn btn-secondary" onclick="CRM.requestCloseModal(\'claimModal\')">Close</button><button class="btn btn-primary" id="claimSaveBtn" onclick="CRM.saveClaim()">Save claim</button></span></div></div></div>';
   }
   function gradeModalHtml(){ return ''
     +'<div class="modal-bg" id="gradeModal"><div class="modal"><div class="modal-head"><span class="modal-x" role="button" tabindex="0" aria-label="Close" onclick="CRM.requestCloseModal(\'gradeModal\')">&times;</span><div class="modal-title">CRM grading</div><div class="modal-sub" id="gradeSub">—</div></div><div class="modal-body">'
@@ -4725,7 +4786,7 @@ window.CRM = (function(){
     toggleSubs:toggleSubs, togglePulse:togglePulse, pulseGo:pulseGo, openSubDrill:openSubDrill,
     openShipDetail:openShipDetail, openInsp:openInsp, openCqc:openCqc, closeDlv:closeDlv,
     openClaim:openClaim, openGrade:openGrade, closeModal:closeModal, requestCloseModal:requestCloseModal, saveClaim:ge(saveClaim), saveGrade:ge(saveGrade), cancelClaim:ge(cancelClaim),
-    submitSettlement:submitSettlement, claimApprove:claimApprove, claimReject:claimReject, claimRejectToggle:claimRejectToggle, saveThreshold:saveThreshold, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
+    submitSettlement:submitSettlement, beginSettlement:beginSettlement, cancelSettlement:cancelSettlement, claimApprove:claimApprove, claimReject:claimReject, claimRejectToggle:claimRejectToggle, saveThreshold:saveThreshold, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
     syncClaimPct:syncClaimPct, markClaimPctManual:markClaimPctManual,
     openRedirect:openRedirect, saveRedirect:ge(saveRedirect), setRedirScope:setRedirScope, redirClientChanged:redirClientChanged, redirRowToggle:redirRowToggle, redirPct:redirPct, redirRender:redirRender,
     openInvoice:openInvoice, openInvClaim:openInvClaim, openInvRedirect:openInvRedirect, saveInvClaim:ge(saveInvClaim), saveInvRedirect:ge(saveInvRedirect), invToggle:invToggle, invPct:invPct, invRender:invRender, invRedirClientChanged:invRedirClientChanged,
@@ -5021,6 +5082,7 @@ function injectCrmCss(){
 .crmv .lc-arrow{align-self:center;color:var(--border2);font-size:12px}
 
 /* scope pills */
+.crmv .claim-ro .pill,.crmv .claim-ro .row-opt,.crmv .claim-ro .row-sel,.crmv .claim-ro .dropzone,.crmv .claim-ro .lifecycle,.crmv .claim-ro .chk{pointer-events:none;opacity:.7}
 .crmv .pill{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border2);background:var(--card);color:var(--text3)}
 .crmv .pill.sel{background:var(--accent);color:#fff;border-color:var(--accent)}
 .crmv .pill-row{display:flex;gap:6px;margin-bottom:12px}
