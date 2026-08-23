@@ -4786,7 +4786,7 @@ window.CRM = (function(){
     toggleSubs:toggleSubs, togglePulse:togglePulse, pulseGo:pulseGo, openSubDrill:openSubDrill,
     openShipDetail:openShipDetail, openInsp:openInsp, openCqc:openCqc, closeDlv:closeDlv,
     openClaim:openClaim, openGrade:openGrade, closeModal:closeModal, requestCloseModal:requestCloseModal, saveClaim:ge(saveClaim), saveGrade:ge(saveGrade), cancelClaim:ge(cancelClaim),
-    submitSettlement:submitSettlement, beginSettlement:beginSettlement, cancelSettlement:cancelSettlement, claimApprove:claimApprove, claimReject:claimReject, claimRejectToggle:claimRejectToggle, saveThreshold:saveThreshold, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
+    submitSettlement:submitSettlement, beginSettlement:beginSettlement, cancelSettlement:cancelSettlement, claimApprove:claimApprove, claimReject:claimReject, saveThreshold:saveThreshold, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
     syncClaimPct:syncClaimPct, markClaimPctManual:markClaimPctManual,
     openRedirect:openRedirect, saveRedirect:ge(saveRedirect), setRedirScope:setRedirScope, redirClientChanged:redirClientChanged, redirRowToggle:redirRowToggle, redirPct:redirPct, redirRender:redirRender,
     openInvoice:openInvoice, openInvClaim:openInvClaim, openInvRedirect:openInvRedirect, saveInvClaim:ge(saveInvClaim), saveInvRedirect:ge(saveInvRedirect), invToggle:invToggle, invPct:invPct, invRender:invRender, invRedirClientChanged:invRedirClientChanged,
