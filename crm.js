@@ -14,6 +14,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 window.CRM = (function(){
   var SB=null, SEASON=null, IS_ADMIN=false, USER=null, ROOT=null, MOUNTED=false;
+  var IS_APPROVER=false, CLAIM_SETTINGS={threshold:0,currency:null};   /* leadership settlement-approval gate */
   var CONFIG=null, ON_OPEN_CQC=null, ON_HEADER=null, ON_TAB=null, PENDING_TAB=null;
   /* ── Access control (pass 1: UI gating; server-side RLS/RPC enforcement is pass 2) ──
      PERMS injected via CRM.init({perms}) from the host, derived from the user's role (assigned in
@@ -78,7 +79,7 @@ window.CRM = (function(){
     return '<span class="badge '+b.cls+'" title="'+esc(rawTitle||('band '+(score||'—')+' ('+b.n+')'))+'">'+b.n+tail+'</span>';
   }
   function statusBadge(s,label){ var cls=s==='delivered'?'b-pass':(s==='in_transit'?'b-esc':(s==='returned'?'b-fail':'b-neutral')); return '<span class="badge '+cls+'">'+esc(label)+'</span>'; }
-  function claimBadge(c){ if(!c) return ''; var map={open:['b-fail','Claim open'],closed:['b-neutral','Claim closed']}; var m=map[c.status]||map.open; return '<span class="badge '+m[0]+'">'+m[1]+' · '+claimValueHtml(c,false)+'</span>'; }
+  function claimBadge(c){ if(!c) return ''; var map={open:['b-fail','Claim open'],pending:['b-warn','Settlement pending'],closed:['b-neutral','Claim closed']}; var m=map[c.status]||map.open; return '<span class="badge '+m[0]+'">'+m[1]+' · '+claimValueHtml(c,false)+'</span>'; }
   function coverageBadge(c){
     if(c.coverage==='cqc') return '<span class="coverage cov-cqc"><span class="cov-dot"></span>CQC · '+((BANDS[c.cqc&&c.cqc.score]||{}).n||'—')+'</span>';
     if(c.coverage==='graded') return '<span class="coverage cov-graded"><span class="cov-dot"></span>CRM-graded · '+esc(c.graded.grade)+'</span>';
@@ -113,7 +114,7 @@ window.CRM = (function(){
       defect:(pct(r.cqc_defect)||'—'), gap:(r.cqc_gap==null?'—':((r.cqc_gap>0?'+':'')+(Math.round(r.cqc_gap*10)/10)+'%')), gapNum:num(r.cqc_gap), maxTemp:r.cqc_max_temp, flag:!!r.cqc_flag};
     if(r.grading_id) s.graded={grade:r.grade, cause:r.grade_cause||'—'};
     if(r.claim_id && r.claim_status && r.claim_status!=='cancelled'){
-      s.claim={id:r.claim_id, status:r.claim_status==='open'?'open':'closed', rawStatus:r.claim_status, potential:!!r.claim_potential,
+      s.claim={id:r.claim_id, status:(r.claim_status==='open'?'open':(r.claim_status==='pending'?'pending':'closed')), rawStatus:r.claim_status, potential:!!r.claim_potential,
         value:fmtMoney(r.claim_value,r.claim_currency), rawValue:r.claim_value, currency:r.claim_currency||'USD'};
     }
     if(s.coverage==='graded'&&!s.graded) s.graded={grade:'—',cause:'—'};
@@ -144,7 +145,7 @@ window.CRM = (function(){
   function provenance(s){ return s.coverage==='cqc'?'measured':(s.coverage==='graded'?'graded':'none'); }
   function gapNum(s){ return s.cqc?s.cqc.gapNum:0; }
   function attentionInfo(s){
-    if(s.claim && s.claim.status==='open') return {p:3,label:'claim open'};
+    if(s.claim && (s.claim.status==='open'||s.claim.status==='pending')) return {p:3,label:s.claim.status==='pending'?'settlement pending approval':'claim open'};
     if(isFlagged(s) && !s.claim) return {p:2,label:'CQC claim flag'};
     if(s.coverage==='none' && s.status==='delivered') return {p:1,label:'delivered · no quality data'};
     return null;
@@ -237,13 +238,14 @@ window.CRM = (function(){
       var list=visibleShipments();
       var attCount=list.filter(function(s){return !!attentionInfo(s);}).length;
       var openClaims=list.filter(function(s){return s.claim&&s.claim.status==='open';}).length;
+      var pendingCount=list.filter(function(s){return s.claim&&s.claim.status==='pending';}).length;
       var unassigned=list.filter(function(s){return s.region==='unassigned';}).length;
       /* role-grouped underline nav on the sidebar-green band (see CRM header redesign).
          Marketing is a single entry that ENTERS the dedicated Leads section — no leads pages inline here. */
       var groups=[
         {tabs:[{id:'dashboard',label:'Dashboard',dot:attCount,mut:true}]},
         {cap:'Records',tabs:[{id:'shipments',label:'Shipments'},{id:'invoices',label:'Invoices'}]},
-        {cap:'Cases',tabs:[{id:'claims',label:'Claims',dot:openClaims},{id:'redirects',label:'Redirects'},{id:'grading',label:'Grading'}]},
+        {cap:'Cases',tabs:[{id:'claims',label:'Claims',dot:openClaims},{id:'redirects',label:'Redirects'},{id:'grading',label:'Grading'}].concat(IS_APPROVER?[{id:'approvals',label:'Approvals',dot:pendingCount}]:[])},
         {cap:'Marketing',tabs:[{id:'leads',label:'Leads',dot:leadsInboxDot(),go:"CRM.leadNav('leads','ws')"}]},
         {tabs:[{id:'clean',label:'Clean'}]}
       ];
@@ -459,6 +461,45 @@ window.CRM = (function(){
     vc.innerHTML=head+'<div class="table-wrap"><table class="wl"><thead><tr><th>Container</th><th>Client</th><th class="right">Value</th><th>Status</th><th>Evidence</th><th class="right">Action</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+pagerHtml(list.length,cPage,'claims');
   }
 
+  /* ── Approvals (leadership settlement review queue) ── */
+  function loadApprover(){ return SB.rpc('crm_can_approve_claims').then(function(r){ IS_APPROVER=!(r&&r.error)&&!!(r&&r.data); }).catch(function(){ IS_APPROVER=false; }); }
+  function loadClaimSettings(){ return SB.from('crm_claim_settings').select('settlement_threshold,threshold_currency').limit(1).then(function(r){ var x=(r&&r.data&&r.data[0])||{}; CLAIM_SETTINGS={threshold:Number(x.settlement_threshold)||0, currency:x.threshold_currency||null}; }).catch(function(){ CLAIM_SETTINGS={threshold:0,currency:null}; }); }
+  function saveThreshold(){
+    if(!IS_ADMIN){ toast('Only admins can change the threshold.'); return; }
+    var v=numOrNull($('apThr')&&$('apThr').value); if(v===null||v<0){ toast('Enter a threshold of 0 or more.'); return; }
+    var cur=txtOrNull($('apThrCur')&&$('apThrCur').value);
+    SB.from('crm_claim_settings').update({settlement_threshold:v, threshold_currency:cur, updated_at:new Date().toISOString(), updated_by:(USER&&USER.id)||null}).eq('id',true).then(function(r){
+      if(r&&r.error){ toast('Could not save threshold — '+esc(r.error.message||'')); return; }
+      CLAIM_SETTINGS={threshold:v,currency:cur}; toast('Approval threshold saved.'); if(currentTab==='approvals') renderApprovals();
+    }).catch(function(e){ toast('Could not save threshold — '+esc((e&&e.message)||e)); });
+  }
+  function renderApprovals(){
+    var vc=$('viewContent'); if(!vc) return;
+    var thrPanel = IS_ADMIN ? '<div class="pulse-panel" style="margin-bottom:14px"><div class="pp-title">Settlement approval threshold</div><div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap"><div><label class="form-label">Auto-approve at or below</label><input class="form-input mono" id="apThr" style="width:150px" inputmode="decimal" value="'+esc(String(CLAIM_SETTINGS.threshold||0))+'"/></div><div><label class="form-label">Currency</label><select class="form-select" id="apThrCur" style="width:110px"><option value="">any</option>'+['USD','EUR','GBP','EGP'].map(function(c){return '<option'+(CLAIM_SETTINGS.currency===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div><button class="btn btn-secondary btn-sm" onclick="CRM.saveThreshold()">Save threshold</button><span class="cell-sub" style="max-width:260px">Settlements at or below this auto-close; above it need approval. <b>0 = every settlement needs approval.</b></span></div></div>' : '';
+    vc.innerHTML='<div class="section-title"><span class="section-title-bar"></span>Approvals <span class="section-count">loading…</span></div>'+thrPanel+'<div class="table-wrap"><div class="hint" style="padding:14px">Loading settlements awaiting approval…</div></div>';
+    SB.from('crm_claims').select('id,claim_ref,client,sub_client,region_id,container_number,invoice_no,anchor,claimed_value,claimed_currency,settled_value,settled_currency,resolution_type,settlement_submitted_by,settlement_submitted_at').eq('season_id',SEASON).eq('status','pending').order('settlement_submitted_at',{ascending:true}).then(function(res){
+      if(currentTab!=='approvals'||!MOUNTED) return;
+      if(res&&res.error){ vc.innerHTML='<div class="empty-state">Failed to load approvals — '+esc(res.error.message||'')+'</div>'; return; }
+      var list=(res&&res.data)||[];
+      if(currentRegion!=='all') list=list.filter(function(x){return x.region_id===currentRegion;});
+      var qq=(currentQuery||'').toLowerCase();
+      if(qq) list=list.filter(function(x){return [x.claim_ref,x.client,x.sub_client,x.container_number,x.invoice_no].join(' ').toLowerCase().indexOf(qq)>=0;});
+      var head='<div class="section-title"><span class="section-title-bar"></span>Approvals <span class="section-count">'+list.length+' settlement'+(list.length===1?'':'s')+' awaiting approval</span></div>';
+      if(!list.length){ vc.innerHTML=head+thrPanel+'<div class="table-wrap"><div class="empty-state">No settlements awaiting approval in this scope.<div class="cell-sub" style="margin-top:6px">Settlements appear here when the commercial team submits them for approval.</div></div></div>'; return; }
+      var rows=list.map(function(x){
+        var claimed=x.claimed_value!=null?(Number(x.claimed_value).toLocaleString()+' '+esc(x.claimed_currency||'')):'—';
+        var proposed=x.settled_value!=null?('<b>'+Number(x.settled_value).toLocaleString()+' '+esc(x.settled_currency||x.claimed_currency||'')+'</b>'):'—';
+        var where=x.anchor==='invoice'?('inv '+esc(x.invoice_no||'—')):esc(x.container_number||'—');
+        return '<tr class="click" role="button" tabindex="0" data-crm-act="reviewClaim" data-crm-key="'+esc(x.container_number||'')+'"><td><span class="lot">'+esc(x.claim_ref||'—')+'</span></td>'
+          +'<td>'+esc(x.client||'—')+'<div class="cell-sub">'+esc(x.sub_client||'')+' · '+esc(regionLabel[x.region_id]||x.region_id||'')+'</div></td>'
+          +'<td class="lot cell-sub">'+where+'</td>'
+          +'<td class="right"><span class="cell-sub" style="text-decoration:line-through">'+claimed+'</span> → '+proposed+(x.resolution_type?'<div class="cell-sub">'+esc(x.resolution_type)+'</div>':'')+'</td>'
+          +'<td class="cell-sub">'+esc(fmtDate(x.settlement_submitted_at)||'')+'</td>'
+          +'<td class="right"><button class="btn btn-primary btn-sm" data-crm-act="reviewClaim" data-crm-key="'+esc(x.container_number||'')+'">Review</button></td></tr>';
+      }).join('');
+      vc.innerHTML=head+thrPanel+'<div class="hint" style="margin:-4px 0 10px">Approve to close &amp; commit the settlement, or reject with a reason to return it to the commercial team.</div><div class="table-wrap"><table class="wl"><thead><tr><th>Claim</th><th>Client</th><th>On</th><th class="right">Claimed → proposed</th><th>Submitted</th><th class="right">Action</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    }).catch(function(e){ if(currentTab==='approvals') vc.innerHTML='<div class="empty-state">Failed to load approvals — '+esc((e&&e.message)||e)+'</div>'; });
+  }
   /* ── Clean ── */
   function renderClean(){
     var vc=$('viewContent'); if(!vc) return;
@@ -526,9 +567,9 @@ window.CRM = (function(){
     var transit=list.filter(function(s){return s.status==='in_transit';});
     var arriving=transit.filter(function(s){return s.sortKey>=TODAY_KEY && s.sortKey<=TODAY_KEY+7;}).length;
     var delivered=list.filter(function(s){return s.status==='delivered';}).length;
-    var claims=list.filter(hasClaim), openC=claims.filter(function(s){return s.claim.status==='open';}), closedC=claims.filter(function(s){return s.claim.status==='closed';});
+    var claims=list.filter(hasClaim), openC=claims.filter(function(s){return s.claim.status==='open';}), pendingC=claims.filter(function(s){return s.claim.status==='pending';}), closedC=claims.filter(function(s){return s.claim.status==='closed';});
     var potC=claims.filter(function(s){return s.claim.potential;}).length;
-    var openSums={},closedSums={}; openC.forEach(function(s){sumsAdd(openSums,s.claim);}); closedC.forEach(function(s){sumsAdd(closedSums,s.claim);});
+    var openSums={},pendingSums={},closedSums={}; openC.forEach(function(s){sumsAdd(openSums,s.claim);}); pendingC.forEach(function(s){sumsAdd(pendingSums,s.claim);}); closedC.forEach(function(s){sumsAdd(closedSums,s.claim);});
     var cqcN=list.filter(function(s){return s.coverage==='cqc';}).length, grN=list.filter(function(s){return s.coverage==='graded';}).length;
     var noneList=list.filter(function(s){return s.coverage==='none';}), noneDelivered=noneList.filter(function(s){return s.status==='delivered';}).length;
     var tiles='<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">'+
@@ -536,13 +577,14 @@ window.CRM = (function(){
       kpi('In transit',transit.length,arriving?arriving+' arriving ≤ 7 days':'none arriving this week',arriving?'up':'')+
       kpi('Delivered',delivered,(list.length?Math.round(delivered/list.length*100):0)+'% of shipments')+
       kpi('Claims',claims.length,openC.length+' open · '+potC+' potential',openC.length?'down':'',"CRM.setTab('claims')")+
+      kpi('Awaiting approval',pendingC.length,pendingC.length?'settlements to review':'none pending',pendingC.length?'down':'up',IS_APPROVER?"CRM.setTab('approvals')":null)+
       kpi('Measured',cqcN,'CQC on file'+(grN?' · +'+grN.toLocaleString()+' CRM-graded':''))+
       kpi('Ungraded',noneList.length,noneDelivered?noneDelivered+' already delivered — chase CQC / grade':'all still in transit',noneDelivered?'down':'up',"CRM.pulseGo('score','none')")+'</div>';
     var sc=[0,0,0,0,0,0],grades={A:0,B:0,C:0},gaps=[],scores=[],flags=0;
     list.forEach(function(s){ if(s.cqc){ if(s.cqc.score) sc[s.cqc.score]++; scores.push(s.cqc.score); gaps.push(gapNum(s)); if(s.cqc.flag&&!s.claim) flags++; } else if(s.coverage==='graded' && grades[s.graded.grade]!=null) grades[s.graded.grade]++; });
     var gradeTotal=grades.A+grades.B+grades.C, maxCol=Math.max(sc[1],sc[2],sc[3],sc[4],sc[5],gradeTotal,1);
     function col(n,color,label){ return '<div class="pcol"><span style="height:'+Math.max(3,Math.round(n/maxCol*52))+'px;background:'+color+'"></span><i>'+label+'·'+n+'</i></div>'; }
-    var claimsPanel='<div class="pulse-panel"><div class="pp-title">Claims pipeline · 2-state</div><div class="pipe"><span class="pstep" style="background:var(--red-bg);color:var(--red)">Open<b>'+openC.length+'</b><small>'+sumsFmt(openSums)+'</small></span><span class="pstep" style="background:var(--bg2);color:var(--text2)">Closed<b>'+closedC.length+'</b><small>'+sumsFmt(closedSums)+'</small></span></div><div class="pleg"><i>'+potC+' potential (value TBD)</i><i>claim rate '+(list.length?Math.round(claims.length/list.length*1000)/10:0)+'%</i></div></div>';
+    var claimsPanel='<div class="pulse-panel"><div class="pp-title">Claims pipeline · 3-state</div><div class="pipe"><span class="pstep" style="background:var(--red-bg);color:var(--red)">Open<b>'+openC.length+'</b><small>'+sumsFmt(openSums)+'</small></span><span class="pstep" style="background:var(--amber-bg);color:var(--amber)">Pending<b>'+pendingC.length+'</b><small>'+sumsFmt(pendingSums)+'</small></span><span class="pstep" style="background:var(--bg2);color:var(--text2)">Closed<b>'+closedC.length+'</b><small>'+sumsFmt(closedSums)+'</small></span></div><div class="pleg"><i>'+potC+' potential (value TBD)</i><i>'+pendingC.length+' awaiting approval</i><i>claim rate '+(list.length?Math.round(claims.length/list.length*1000)/10:0)+'%</i></div></div>';
     var qualityPanel='<div class="pulse-panel"><div class="pp-title">Quality mix · CQC scores &amp; CRM grades</div><div class="pcols">'+col(sc[1],'#4a8c62','Exc')+col(sc[2],'#7db894','Good')+col(sc[3],'#e8c87a','Fair')+col(sc[4],'#c86060','Poor')+col(sc[5],'#b03030','Rej')+col(gradeTotal,'#b490e0','ABC')+'</div><div class="pleg"><i>avg score '+(pAvg(scores.filter(Boolean))||'—')+'</i><i>avg gap '+(pAvg(gaps)!==null?'+'+pAvg(gaps)+'%':'—')+'</i>'+(flags?'<i style="color:var(--red)">'+flags+' CQC flags un-actioned</i>':'')+(gradeTotal?'<i>grades '+grades.A+'A / '+grades.B+'B / '+grades.C+'C</i>':'')+'</div></div>';
     var flowPanel='<div class="pulse-panel"><div class="pp-title">Status &amp; coverage flow</div><div class="flowbar"><span style="flex:'+transit.length+';background:#a0b4e8"></span><span style="flex:'+delivered+';background:#4a8c62"></span></div><div class="pleg" style="margin-bottom:9px"><i><b style="background:#a0b4e8"></b>'+transit.length+' in transit</i><i><b style="background:#4a8c62"></b>'+delivered+' delivered</i></div><div class="flowbar"><span style="flex:'+cqcN+';background:#4a8c62"></span><span style="flex:'+grN+';background:#b490e0"></span><span style="flex:'+noneList.length+';background:#bcb8ae"></span></div><div class="pleg"><i><b style="background:#4a8c62"></b>'+cqcN+' CQC</i><i><b style="background:#b490e0"></b>'+grN+' CRM-graded</i><i><b style="background:#bcb8ae"></b>'+noneList.length+' no data</i></div></div>';
     function rank(rows,maxN,go){
@@ -982,6 +1024,7 @@ window.CRM = (function(){
 
   function renderContent(){
     if(currentTab==='regions' && !(IS_ADMIN&&currentRegion==='all')) currentTab='dashboard';
+    if(currentTab==='approvals' && !IS_APPROVER) currentTab='dashboard';
     var _isLeads=LEADS_TABS.indexOf(currentTab)>=0;   /* Leads (draft) surfaces have their own toolbar */
     if(ROOT){ var _rn=ROOT.querySelector('.region-note'); if(_rn) _rn.style.display=_isLeads?'none':''; var _sb=ROOT.querySelector('.subbar'); if(_sb) _sb.style.display=_isLeads?'none':''; }
     if(currentTab==='leads')     return renderLeads();
@@ -994,6 +1037,7 @@ window.CRM = (function(){
     if(currentTab==='shipments') return renderShipmentsTable();
     if(currentTab==='grading')   return renderGradingQueue();
     if(currentTab==='claims')    return renderClaims();
+    if(currentTab==='approvals') return renderApprovals();
     if(currentTab==='clean')     return renderClean();
     if(currentTab==='regions')   return (CRM_REGION_RULES_V2?renderRegionRulesV2():renderRegionMapping());
   }
@@ -1111,12 +1155,61 @@ window.CRM = (function(){
       '<div class="grid2" id="netWrap" data-total="'+totalNet+'"><div><label class="form-label">Net weight impacted (t)</label><input class="form-input mono" id="partNetTons" inputmode="decimal" placeholder="optional" oninput="CRM.syncNet(\'kg\')"/></div><div><label class="form-label">% of net weight</label>'+pctInput+'</div></div>'+
       '<div class="hint">All part-of-load fields optional.'+(pctEnabled?' Shipment net weight <b>'+totalNet.toLocaleString()+' t</b> — weight and % update each other.':' Net weight not recorded — enter tonnes directly.')+'</div>';
   }
-  function setLifecycle(lc){
-    claimLifecycle=lc;
-    [].forEach.call(ROOT.querySelectorAll('#claimLifecycle .lc-step'),function(el){ el.className='lc-step'+(el.getAttribute('data-lc')===lc?' sel-'+lc:''); });
-    var closing=$('closingFields'); if(closing) closing.style.display=lc==='closed'?'block':'none';
-    var closedOn=$('claimClosedOn'); if(closedOn) closedOn.textContent=lc==='closed'?'today':'—';
+  /* Status/settlement UI — driven by the approval funnel (open → pending → closed), not a free toggle. */
+  function _bnr(kind,html){ var map={warn:['var(--amber-bg)','var(--amber-border)','var(--amber)'],ok:['var(--green-bg)','var(--green-border)','var(--green)'],bad:['var(--red-bg)','var(--red-border)','var(--red)']}; var c=map[kind]||['var(--bg2)','var(--border)','var(--text2)']; return '<div style="background:'+c[0]+';border:1px solid '+c[1]+';color:'+c[2]+';padding:8px 10px;border-radius:8px;margin-bottom:8px;font-size:12px">'+html+'</div>'; }
+  function renderClaimStatusUI(status,c){
+    var sl=$('claimStatusLine'); if(!sl) return;
+    var blk=$('settlementBlock'), ban=$('settlementBanner'), act=$('settlementActions'), hint=$('settlementHint'), save=$('claimSaveBtn'), res=$('claimResolution'), sv=$('settledValue');
+    var hasId=!!(claimCtx&&claimCtx.claimId);
+    var st=(status==='new'||!hasId)?'new':(status||'open');
+    var chip={'new':['b-neutral','New claim'],open:['b-fail','Open'],pending:['b-warn','Settlement pending approval'],closed:['b-neutral','Closed'],cancelled:['b-neutral','Cancelled']}[st]||['b-fail','Open'];
+    sl.innerHTML='<span class="badge '+chip[0]+'">'+chip[1]+'</span>'+(st==='new'?' <span class="cell-sub">— will be raised as Open (active)</span>':'');
+    if(blk) blk.style.display=(st==='new')?'none':'block';
+    if(save) save.style.display=(st==='new'||st==='open')?'':'none';
+    var editable=(st==='open');
+    if(res) res.disabled=!editable; if(sv) sv.disabled=!editable;
+    if(ban) ban.innerHTML=''; if(hint) hint.innerHTML=''; if(act) act.innerHTML='';
+    var cur=(c&&(c.settled_currency||c.claimed_currency))||($('claimCurrency')&&$('claimCurrency').value)||'USD';
+    function money(v){ return v==null?'—':(Number(v).toLocaleString()+' '+cur); }
+    if(st==='open'){
+      if(c&&c.rejection_reason&&ban) ban.innerHTML=_bnr('bad','↩ Settlement returned for revision — '+esc(c.rejection_reason)+'. Adjust the settled value and resubmit.');
+      if(hint) hint.innerHTML='Enter the agreed settled value, then submit it for approval. '+(CLAIM_SETTINGS.threshold>0?('Auto-closes if ≤ '+Number(CLAIM_SETTINGS.threshold).toLocaleString()+(CLAIM_SETTINGS.currency?' '+CLAIM_SETTINGS.currency:'')+'; above that an approver reviews it.'):'Every settlement is reviewed by an approver before the claim closes.');
+      if(act) act.innerHTML='<button class="btn btn-primary btn-sm" onclick="CRM.submitSettlement()">Submit for approval →</button>';
+    } else if(st==='pending'){
+      var subBy=c&&c.settlement_submitted_by, mine=subBy&&USER&&USER.id&&subBy===USER.id;
+      if(ban) ban.innerHTML=_bnr('warn','⏳ Proposed settlement <b>'+money(c&&c.settled_value)+'</b>'+(c&&c.resolution_type?' · '+esc(c.resolution_type):'')+(c&&c.settlement_submitted_at?' · submitted '+esc(fmtDate(c.settlement_submitted_at)||''):'')+' — awaiting approval.');
+      if(act){
+        if(IS_APPROVER && !(mine && !IS_ADMIN)){
+          act.innerHTML='<button class="btn btn-primary btn-sm" onclick="CRM.claimApprove()">Approve &amp; close →</button> <button class="btn btn-secondary btn-sm" onclick="CRM.claimRejectToggle()">Reject</button>'
+            +'<div id="claimRejectBox" style="display:none;margin-top:8px"><textarea class="form-ta" id="claimRejectReason" style="height:52px;resize:vertical" placeholder="Reason for rejection (required)"></textarea><div style="margin-top:6px"><button class="btn btn-danger btn-sm" onclick="CRM.claimReject()">Confirm rejection</button></div></div>';
+        } else if(mine){ act.innerHTML='<div class="cell-sub">You submitted this settlement — another approver must review it.</div>'; }
+        else { act.innerHTML='<div class="cell-sub">Awaiting an approver.</div>'; }
+      }
+    } else if(st==='closed'){
+      if(ban) ban.innerHTML=_bnr('ok','✓ Settled <b>'+money(c&&c.settled_value)+'</b>'+(c&&c.resolution_type?' · '+esc(c.resolution_type):'')+(c&&c.closed_at?' · closed '+esc(fmtDate(c.closed_at)||''):'')+'.');
+    }
   }
+  function claimRejectToggle(){ var b=$('claimRejectBox'); if(b){ b.style.display=b.style.display==='none'?'block':'none'; var r=$('claimRejectReason'); if(r&&b.style.display!=='none') r.focus(); } }
+  function submitSettlement(){
+    var s=claimCtx; if(!s||!s.claimId){ toast('Save the claim first, then submit its settlement.'); return; }
+    if(claimBusy) return;
+    var val=numOrNull($('settledValue')&&$('settledValue').value);
+    if(val===null){ toast('Enter the agreed settled value to submit for approval.'); if($('settledValue')) $('settledValue').focus(); return; }
+    var cur=txtOrNull($('claimCurrency')&&$('claimCurrency').value)||'USD';
+    var res=txtOrNull($('claimResolution')&&$('claimResolution').value);
+    claimBusy=true;
+    SB.rpc('crm_submit_settlement',{payload:{ id:s.claimId, loaded_version:(claimLoaded&&claimLoaded.updated_at)||null, settled_value:val, settled_currency:cur, resolution_type:res }}).then(function(r){
+      claimBusy=false;
+      if(r&&r.error){ toast(claimErr(r.error)); return; }
+      var out=r&&r.data||{};
+      closeModal('claimModal');
+      toast(out.auto_closed?('Settlement auto-closed · <b>'+esc(out.claim_ref||'')+'</b> (≤ threshold)'):('Submitted for approval · <b>'+esc(out.claim_ref||'')+'</b>'));
+      reload();
+    }).catch(function(e){ claimBusy=false; toast(claimErr(e)); });
+  }
+  function _reviewSettlement(id,decision,reason,loaded){ return SB.rpc('crm_review_settlement',{payload:{ id:id, decision:decision, reason:reason||null, loaded_version:loaded||null }}); }
+  function claimApprove(){ var s=claimCtx; if(!s||!s.claimId||claimBusy) return; claimBusy=true; _reviewSettlement(s.claimId,'approve',null,(claimLoaded&&claimLoaded.updated_at)||null).then(function(r){ claimBusy=false; if(r&&r.error){ toast(claimErr(r.error)); return; } closeModal('claimModal'); toast('Approved &amp; closed · <b>'+esc((r.data&&r.data.claim_ref)||'')+'</b>'); reload(); }).catch(function(e){ claimBusy=false; toast(claimErr(e)); }); }
+  function claimReject(){ var s=claimCtx; if(!s||!s.claimId||claimBusy) return; var reason=($('claimRejectReason')&&$('claimRejectReason').value||'').trim(); if(!reason){ toast('A reason is required to reject.'); if($('claimRejectReason')) $('claimRejectReason').focus(); return; } claimBusy=true; _reviewSettlement(s.claimId,'reject',reason,(claimLoaded&&claimLoaded.updated_at)||null).then(function(r){ claimBusy=false; if(r&&r.error){ toast(claimErr(r.error)); return; } closeModal('claimModal'); toast('Settlement rejected — returned to the commercial team.'); reload(); }).catch(function(e){ claimBusy=false; toast(claimErr(e)); }); }
   function setScope(sc){
     claimScope=sc;
     $('scopeWhole').className='pill'+(sc==='whole'?' sel':'');
@@ -1271,13 +1364,13 @@ window.CRM = (function(){
 
     /* reset every field, then repopulate from the server record if there is one */
     ['claimValue','salePrice','claimPct','blNumber','claimClaimant','claimClaimantEmail',
-     'claimClientRef','claimDeadline','claimNotes','partPallets','partCartons','partNetTons'].forEach(function(id){ setVal(id,''); });
+     'claimClientRef','claimDeadline','claimNotes','partPallets','partCartons','partNetTons','settledValue'].forEach(function(id){ setVal(id,''); });
     if($('claimReason')) $('claimReason').selectedIndex=0;
     if($('claimResolution')) $('claimResolution').selectedIndex=0;
     if($('claimIncoterm')) $('claimIncoterm').selectedIndex=0;
     var pf=$('potFlag'); if(pf){ pf.checked=false; }
     var bl=$('blNumber'); if(bl){ bl.style.borderColor=''; if($('blHint')) $('blHint').style.display='none'; }
-    setLifecycle('open');
+    renderClaimStatusUI('new',null);
     renderClaimHistory(null);
     renderClaimFiles();
 
@@ -1316,7 +1409,7 @@ window.CRM = (function(){
       if(c.resolution_type&&$('claimResolution')) $('claimResolution').value=c.resolution_type;
       if(c.settled_value!=null) setVal('settledValue',c.settled_value);
       var pf2=$('potFlag'); if(pf2){ pf2.checked=!!c.potential; togglePotential(); }
-      setLifecycle(c.status==='closed'?'closed':'open');
+      renderClaimStatusUI(c.status,c);
       if(c.claim_pct!=null) claimPctManual=true;
       /* P1: restore the saved scope + re-tick the claimed composition rows. Without this, openClaim's
          unconditional setScope('whole') meant editing a part-of-load claim silently re-saved it as a
@@ -1403,7 +1496,7 @@ window.CRM = (function(){
       container_number:s.cn, voyage_key:s.key,
       client:txtOrNull(s.client), sub_client:txtOrNull(s.sub), country:txtOrNull(s.country),
       bl_number:bl.value.trim(),
-      scope:claimScope, status:claimLifecycle, potential:potential,
+      scope:claimScope, status:'open', potential:potential,
       reason:txtOrNull($('claimReason')&&$('claimReason').value),
       claimed_value:potential?null:numOrNull(valRaw),
       claimed_currency:txtOrNull($('claimCurrency')&&$('claimCurrency').value),
@@ -1421,13 +1514,8 @@ window.CRM = (function(){
       incoterm:txtOrNull($('claimIncoterm')&&$('claimIncoterm').value),
       rows:rows,
       event:s.claimId?'updated':'raised',
-      event_detail:'B/L '+bl.value.trim()+(claimLifecycle==='closed'?' · closed':'')
+      event_detail:'B/L '+bl.value.trim()
     };
-    if(claimLifecycle==='closed'){
-      payload.resolution_type=txtOrNull($('claimResolution')&&$('claimResolution').value);
-      payload.settled_value=numOrNull($('settledValue')&&$('settledValue').value);
-      payload.settled_currency=txtOrNull($('claimCurrency')&&$('claimCurrency').value);
-    }
     claimBusy=true;
     var btn=$('claimSaveBtn'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
     SB.rpc('save_crm_claim_full',{payload:payload}).then(function(res){
@@ -1713,9 +1801,9 @@ window.CRM = (function(){
   }
   function claimModalHtml(){ return ''
     +'<div class="modal-bg" id="claimModal"><div class="modal"><div class="modal-head"><span class="modal-x" role="button" tabindex="0" aria-label="Close" onclick="CRM.requestCloseModal(\'claimModal\')">&times;</span><div class="modal-title" id="claimTitle">Raise a claim</div><div class="modal-sub" id="claimSub">—</div></div><div class="modal-body">'
-    +'<div class="msec" style="border-top:none;padding-top:0;margin-top:0">Status</div><div class="form-row" style="margin-bottom:10px"><label class="form-label">Lifecycle</label><div class="lifecycle" id="claimLifecycle"><div class="lc-step sel-open" data-lc="open" onclick="CRM.setLifecycle(\'open\')"><span class="lc-n">Active</span>Open</div><span class="lc-arrow">→</span><div class="lc-step" data-lc="closed" onclick="CRM.setLifecycle(\'closed\')"><span class="lc-n">Done</span>Closed</div></div></div>'
+    +'<div class="msec" style="border-top:none;padding-top:0;margin-top:0">Status</div><div id="claimStatusLine" style="margin-bottom:10px"></div>'
     +'<div class="grid3" style="margin-bottom:10px"><div><label class="form-label">Raised</label><div class="ctx-val" id="claimRaised">—</div></div><div><label class="form-label">Response deadline</label><input class="form-input" type="date" id="claimDeadline"/></div><div><label class="form-label">Closed</label><div class="ctx-val" id="claimClosedOn">—</div></div></div>'
-    +'<div class="closing-block" id="closingFields" style="display:none"><div class="grid2"><div><label class="form-label">Resolution type</label><select class="form-select" id="claimResolution"><option>Credit note</option><option>Replacement shipment</option><option>Price adjustment</option><option>Goodwill gesture</option><option>Insurance claim</option><option>Rejected — no fault</option></select></div><div><label class="form-label">Settled value</label><input class="form-input mono" id="settledValue" inputmode="decimal" placeholder="agreed amount"/></div></div></div>'
+    +'<div class="closing-block" id="settlementBlock" style="display:none"><div class="msec" style="border-top:none;padding-top:0;margin-top:0">Settlement</div><div id="settlementBanner"></div><div class="grid2"><div><label class="form-label">Resolution type</label><select class="form-select" id="claimResolution"><option>Credit note</option><option>Replacement shipment</option><option>Price adjustment</option><option>Goodwill gesture</option><option>Insurance claim</option><option>Rejected — no fault</option></select></div><div><label class="form-label">Settled value</label><input class="form-input mono" id="settledValue" inputmode="decimal" placeholder="agreed amount"/></div></div><div class="hint" id="settlementHint"></div><div id="settlementActions" style="margin-top:10px"></div></div>'
     +'<div class="msec">Claim details</div><div class="form-row" style="margin-bottom:10px"><label class="form-label">B/L number <span style="color:var(--red)">*</span></label><input class="form-input mono" id="blNumber" aria-required="true" aria-describedby="blHint" placeholder="e.g. MAEU236451078"/><div class="hint" id="blHint" style="display:none;color:var(--red)">B/L number is required to save a claim.</div></div>'
     +'<div class="grid2" style="margin-bottom:10px"><div><label class="form-label">Reason</label><select class="form-select" id="claimReason"><option>Decay / rot on arrival</option><option>Temperature abuse in transit</option><option>Soft / overripe berries</option><option>Shatter / loose berries</option><option>Short weight</option><option>Wrong variety / spec</option><option>Late arrival / missed market</option><option>Documentation</option><option>Other</option></select></div><div><label class="form-label">Client\'s claim ref <span style="text-transform:none;font-weight:400;color:var(--text3)">(optional)</span></label><input class="form-input mono" id="claimClientRef" placeholder="their reference #"/></div></div>'
     +'<div class="grid2" style="margin-bottom:0"><div><label class="form-label">Claimant</label><input class="form-input" id="claimClaimant" placeholder="contact name"/></div><div><label class="form-label">Claimant email</label><input class="form-input" id="claimClaimantEmail" type="email" placeholder="name@client.com"/></div></div>'
@@ -2263,6 +2351,7 @@ window.CRM = (function(){
       if(CRM_WRITE_ACTS[a] && !guard('editCRM','CRM edits (claims, grading, redirects) are restricted to the commercial team')) return;
       if(a==='openShipDetail') openShipDetail(k);
       else if(a==='openClaim') openClaim(k);
+      else if(a==='reviewClaim'){ var _sh=null; for(var _i=0;_i<SHIPMENTS.length;_i++){ if(SHIPMENTS[_i].cn===k){ _sh=SHIPMENTS[_i]; break; } } if(_sh) openClaim(_sh.key); else toast('That container isn’t in the current view — set Region to “All”.'); }
       else if(a==='openGrade') openGrade(k);
       else if(a==='openInsp') openInsp(k);
       else if(a==='openCqc') openCqc(k);
@@ -2315,7 +2404,7 @@ window.CRM = (function(){
     ROOT.innerHTML=template();
     attachListeners();
     /* loadVoyages has no data dependency on the four lookups, so fire it alongside them instead of chaining — removes one round-trip from time-to-dashboard */
-    var loaders=[loadRegions(),loadCountryMap(),loadOverrides(),loadScoreBands(),loadVoyages(),loadClaimSettled()];
+    var loaders=[loadRegions(),loadCountryMap(),loadOverrides(),loadScoreBands(),loadVoyages(),loadClaimSettled(),loadApprover(),loadClaimSettings()];
     if(CRM_REGION_RULES_V2) loaders.push(loadRulesV2(),loadAliasesV2(),loadEntitiesV2());
     Promise.all(loaders).then(function(){ if(CRM_REGION_RULES_V2) applyV2Regions(); render(); }).catch(function(e){ var vc=$('viewContent'); if(vc) vc.innerHTML='<div class="empty-state">Failed to load CRM data — '+esc(e&&e.message||e)+'</div>'; });
   }
@@ -4633,7 +4722,7 @@ window.CRM = (function(){
     toggleSubs:toggleSubs, togglePulse:togglePulse, pulseGo:pulseGo, openSubDrill:openSubDrill,
     openShipDetail:openShipDetail, openInsp:openInsp, openCqc:openCqc, closeDlv:closeDlv,
     openClaim:openClaim, openGrade:openGrade, closeModal:closeModal, requestCloseModal:requestCloseModal, saveClaim:ge(saveClaim), saveGrade:ge(saveGrade), cancelClaim:ge(cancelClaim),
-    setLifecycle:setLifecycle, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
+    submitSettlement:submitSettlement, claimApprove:claimApprove, claimReject:claimReject, claimRejectToggle:claimRejectToggle, saveThreshold:saveThreshold, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
     syncClaimPct:syncClaimPct, markClaimPctManual:markClaimPctManual,
     openRedirect:openRedirect, saveRedirect:ge(saveRedirect), setRedirScope:setRedirScope, redirClientChanged:redirClientChanged, redirRowToggle:redirRowToggle, redirPct:redirPct, redirRender:redirRender,
     openInvoice:openInvoice, openInvClaim:openInvClaim, openInvRedirect:openInvRedirect, saveInvClaim:ge(saveInvClaim), saveInvRedirect:ge(saveInvRedirect), invToggle:invToggle, invPct:invPct, invRender:invRender, invRedirClientChanged:invRedirClientChanged,
