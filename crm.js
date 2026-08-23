@@ -446,7 +446,7 @@ window.CRM = (function(){
     var list=visibleShipments().filter(hasClaim);
     var head='<div class="section-title"><span class="section-title-bar"></span>Claims <span class="section-count">'+list.length+' containers with a claim</span></div>';
     if(!list.length){ vc.innerHTML=head+'<div class="table-wrap"><div class="empty-state">No claims raised in this scope.<div class="cell-sub" style="margin-top:6px">Open a container from <b>Shipments</b> and choose <b>Raise claim</b>.</div></div></div>'; return; }
-    var lc={open:['b-fail','Open'],closed:['b-neutral','Closed']}, lcOrder={open:0,closed:1};
+    var lc={open:['b-fail','Open'],pending:['b-warn','Settlement pending'],closed:['b-neutral','Closed']}, lcOrder={open:0,pending:1,closed:2};
     list.sort(function(a,b){ return lcOrder[a.claim.status]-lcOrder[b.claim.status] || b.sortKey-a.sortKey; });
     var cPage=pageState.claims;
     var rows=list.slice(cPage*PER_PAGE,(cPage+1)*PER_PAGE).map(function(s){
