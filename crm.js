@@ -2404,9 +2404,9 @@ window.CRM = (function(){
     ROOT.innerHTML=template();
     attachListeners();
     /* loadVoyages has no data dependency on the four lookups, so fire it alongside them instead of chaining — removes one round-trip from time-to-dashboard */
-    var loaders=[loadRegions(),loadCountryMap(),loadOverrides(),loadScoreBands(),loadVoyages(),loadClaimSettled(),loadApprover(),loadClaimSettings()];
+    var loaders=[loadRegions(),loadCountryMap(),loadOverrides(),loadScoreBands(),loadVoyages(),loadClaimSettled(),loadRedirIn(),loadApprover(),loadClaimSettings()];
     if(CRM_REGION_RULES_V2) loaders.push(loadRulesV2(),loadAliasesV2(),loadEntitiesV2());
-    Promise.all(loaders).then(function(){ if(CRM_REGION_RULES_V2) applyV2Regions(); render(); }).catch(function(e){ var vc=$('viewContent'); if(vc) vc.innerHTML='<div class="empty-state">Failed to load CRM data — '+esc(e&&e.message||e)+'</div>'; });
+    Promise.all(loaders).then(function(){ if(CRM_REGION_RULES_V2) applyV2Regions(); SHIPMENTS=SHIPMENTS.concat(REDIR_IN); render(); }).catch(function(e){ var vc=$('viewContent'); if(vc) vc.innerHTML='<div class="empty-state">Failed to load CRM data — '+esc(e&&e.message||e)+'</div>'; });
   }
   function setSeason(seasonId){ if(seasonId===SEASON) return; /* skip the redundant mount-time call so CRM open fetches voyages once, not twice */ SEASON=seasonId; if(MOUNTED) reload(); }
   function teardown(){ MOUNTED=false; ROOT=null; if(ON_HEADER){ ON_HEADER(''); } }
