@@ -245,7 +245,7 @@ window.CRM = (function(){
       var groups=[
         {tabs:[{id:'dashboard',label:'Dashboard',dot:attCount,mut:true}]},
         {cap:'Records',tabs:[{id:'shipments',label:'Shipments'},{id:'invoices',label:'Invoices'}]},
-        {cap:'Cases',tabs:[{id:'claims',label:'Claims',dot:openClaims},{id:'redirects',label:'Redirects'},{id:'grading',label:'Grading'}].concat(IS_APPROVER?[{id:'approvals',label:'Approvals',dot:pendingCount}]:[])},
+        {cap:'Cases',tabs:[{id:'claims',label:'Claims',dot:openClaims},{id:'redirects',label:'Redirects'},{id:'grading',label:'Grading'}].concat(IS_APPROVER?[{id:'approvals',label:'Claim Approvals',dot:pendingCount}]:[])},
         {cap:'Marketing',tabs:[{id:'leads',label:'Leads',dot:leadsInboxDot(),go:"CRM.leadNav('leads','ws')"}]},
         {tabs:[{id:'clean',label:'Clean'}]}
       ];
@@ -476,7 +476,7 @@ window.CRM = (function(){
   function renderApprovals(){
     var vc=$('viewContent'); if(!vc) return;
     var thrPanel = IS_ADMIN ? '<div class="pulse-panel" style="margin-bottom:14px"><div class="pp-title">Settlement approval threshold</div><div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap"><div><label class="form-label">Auto-approve at or below</label><input class="form-input mono" id="apThr" style="width:150px" inputmode="decimal" value="'+esc(String(CLAIM_SETTINGS.threshold||0))+'"/></div><div><label class="form-label">Currency</label><select class="form-select" id="apThrCur" style="width:110px"><option value="">any</option>'+['USD','EUR','GBP','EGP'].map(function(c){return '<option'+(CLAIM_SETTINGS.currency===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></div><button class="btn btn-secondary btn-sm" onclick="CRM.saveThreshold()">Save threshold</button><span class="cell-sub" style="max-width:260px">Settlements at or below this auto-close; above it need approval. <b>0 = every settlement needs approval.</b></span></div></div>' : '';
-    vc.innerHTML='<div class="section-title"><span class="section-title-bar"></span>Approvals <span class="section-count">loading…</span></div>'+thrPanel+'<div class="table-wrap"><div class="hint" style="padding:14px">Loading settlements awaiting approval…</div></div>';
+    vc.innerHTML='<div class="section-title"><span class="section-title-bar"></span>Claim Approvals <span class="section-count">loading…</span></div>'+thrPanel+'<div class="table-wrap"><div class="hint" style="padding:14px">Loading settlements awaiting approval…</div></div>';
     SB.from('crm_claims').select('id,claim_ref,client,sub_client,region_id,container_number,invoice_no,anchor,claimed_value,claimed_currency,settled_value,settled_currency,resolution_type,settlement_submitted_by,settlement_submitted_at').eq('season_id',SEASON).eq('status','pending').order('settlement_submitted_at',{ascending:true}).then(function(res){
       if(currentTab!=='approvals'||!MOUNTED) return;
       if(res&&res.error){ vc.innerHTML='<div class="empty-state">Failed to load approvals — '+esc(res.error.message||'')+'</div>'; return; }
@@ -484,7 +484,7 @@ window.CRM = (function(){
       if(currentRegion!=='all') list=list.filter(function(x){return x.region_id===currentRegion;});
       var qq=(currentQuery||'').toLowerCase();
       if(qq) list=list.filter(function(x){return [x.claim_ref,x.client,x.sub_client,x.container_number,x.invoice_no].join(' ').toLowerCase().indexOf(qq)>=0;});
-      var head='<div class="section-title"><span class="section-title-bar"></span>Approvals <span class="section-count">'+list.length+' settlement'+(list.length===1?'':'s')+' awaiting approval</span></div>';
+      var head='<div class="section-title"><span class="section-title-bar"></span>Claim Approvals <span class="section-count">'+list.length+' settlement'+(list.length===1?'':'s')+' awaiting approval</span></div>';
       if(!list.length){ vc.innerHTML=head+thrPanel+'<div class="table-wrap"><div class="empty-state">No settlements awaiting approval in this scope.<div class="cell-sub" style="margin-top:6px">Settlements appear here when the commercial team submits them for approval.</div></div></div>'; return; }
       var rows=list.map(function(x){
         var claimed=x.claimed_value!=null?(Number(x.claimed_value).toLocaleString()+' '+esc(x.claimed_currency||'')):'—';
