@@ -1278,10 +1278,13 @@ window.CRM = (function(){
       el.innerHTML='<div class="audit-item"><span class="audit-dot" style="background:var(--border2)"></span><span class="audit-main cell-sub">New claim — this will be the first entry.</span></div>';
       return;
     }
+    var LBL={raised:'Raised',updated:'Updated',settlement_submitted:'Submitted for approval',settlement_approved:'Approved & closed',settlement_rejected:'Settlement rejected',settlement_auto_closed:'Auto-closed (≤ threshold)',closed:'Closed',cancelled:'Cancelled'};
+    function auditWhen(d){ var x=parseDate(d); if(!x) return ''; var hh=('0'+x.getUTCHours()).slice(-2), mm=('0'+x.getUTCMinutes()).slice(-2); return x.getUTCDate()+' '+MONTHS[x.getUTCMonth()]+' · '+hh+':'+mm; }
     el.innerHTML=events.map(function(e){
       var who=(USER&&USER.id===e.actor)?'you':'';
-      return '<div class="audit-item"><span class="audit-dot"></span><span class="audit-main"><b>'+esc(e.event||'updated')+'</b>'
-        +(e.detail?' · '+esc(e.detail):'')+(who?' · '+who:'')+'</span><span class="audit-when">'+esc(fmtDate(e.at)||'')+'</span></div>';
+      var lbl=LBL[e.event]||e.event||'updated';
+      return '<div class="audit-item"><span class="audit-dot"></span><span class="audit-main"><b>'+esc(lbl)+'</b>'
+        +(e.detail?' · '+esc(e.detail):'')+(who?' · '+who:'')+'</span><span class="audit-when">'+esc(auditWhen(e.at))+'</span></div>';
     }).join('');
   }
 
