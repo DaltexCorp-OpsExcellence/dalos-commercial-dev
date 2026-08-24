@@ -2239,18 +2239,20 @@ window.CRM = (function(){
     invCtx.claimId=null; invCtx.loaded=null;
     $('icInv').textContent=invCtx.inv; $('icSub').textContent=invCtx.client+' · '+(regionLabel[invCtx.region]||invCtx.region)+' · '+invCtx.conts.length+' containers';
     ['icBl','icVal','icRef','icNotes','icSettled'].forEach(function(id){ setVal(id,''); }); if($('icReason'))$('icReason').selectedIndex=0; if($('icCur'))$('icCur').selectedIndex=0; if($('icRes'))$('icRes').selectedIndex=0;
-    setInvLifecycle('open'); if($('icCancel'))$('icCancel').style.display='none'; if($('icSave'))$('icSave').textContent='Raise claim';
+    if($('icCancel'))$('icCancel').style.display='none'; if($('icSave'))$('icSave').textContent='Raise claim';
     buildInvPicker(); invRender(); openModal('invClaimModal'); }); }
   function openInvEditClaim(id){ invMode='claim';
     Promise.all([SB.from('crm_claims').select('*').eq('id',id).limit(1), SB.from('crm_claim_rows').select('*').eq('claim_id',id)]).then(function(r){
       var c=((r[0]&&r[0].data)||[])[0]; if(!c){ toast('Claim not found.'); return; } var crows=(r[1]&&r[1].data)||[];
+      /* Once submitted/closed, invoice claims are reviewed/settled through the same gate as container claims — open the (read-only for approvers) claim modal instead of the editable invoice modal. */
+      if(c.status!=='open'){ var _sh=null; for(var _i=0;_i<SHIPMENTS.length;_i++){ if(SHIPMENTS[_i].cn===c.container_number){ _sh=SHIPMENTS[_i]; break; } } if(_sh){ closeDlv(); openClaim(_sh.key); } else { toast('Open this claim from Shipments — container '+esc(c.container_number)+'.'); } return; }
       _openInv(c.invoice_no, function(){
         invCtx.claimId=c.id; invCtx.loaded=c.updated_at;
         invPL.forEach(function(pr){ pr.on=crows.some(function(cr){ return invNcn(cr.ship_container)===invNcn(pr.cn)&&(cr.variety||'')===(pr.v||'')&&(cr.farm||'')===(pr.farm||'')&&(cr.packhouse||'')===(pr.ph||''); }); });
         $('icInv').textContent=c.invoice_no; $('icSub').textContent=invCtx.client+' · edit '+(c.claim_ref||'');
         setVal('icBl',c.bl_number); setVal('icVal',c.claimed_value); setVal('icRef',c.client_ref); setVal('icNotes',c.notes); setVal('icSettled',c.settled_value);
         if(c.reason&&$('icReason'))$('icReason').value=c.reason; if(c.claimed_currency&&$('icCur'))$('icCur').value=c.claimed_currency; if(c.resolution_type&&$('icRes'))$('icRes').value=c.resolution_type;
-        setInvLifecycle(c.status==='closed'?'closed':'open'); if($('icCancel'))$('icCancel').style.display='inline'; if($('icSave'))$('icSave').textContent='Save claim';
+        if($('icCancel'))$('icCancel').style.display='inline'; if($('icSave'))$('icSave').textContent='Save claim';
         buildInvPicker(); invRender(); openModal('invClaimModal');
       });
     }).catch(function(e){ toast('Could not load claim — '+esc((e&&e.message)||e)); });
@@ -2304,16 +2306,14 @@ window.CRM = (function(){
     var bl=$('icBl'); if(!bl.value.trim()){ toast('B/L number is required.'); bl.focus(); return; }
     var rows=[]; invPL.forEach(function(r){ if(r.on){ rows.push({ship_container:r.cn, ship_carta:r.carta||null, variety:r.v, farm:r.farm, packhouse:r.ph, cartons:r.ctn, net_tons:r.tons}); } });
     if(!rows.length){ toast('Tick at least one part-load.'); return; }
-    var closed=(invLifecycle==='closed');
     var payload={ id:invCtx.claimId||null, loaded_version:invCtx.loaded||null,
       season_id:SEASON, product_id:txtOrNull((invCtx.product||'').toLowerCase()), container_number:rows[0].ship_container,
-      anchor:'invoice', invoice_no:invCtx.inv, scope:'part', status:(closed?'closed':'open'),
+      anchor:'invoice', invoice_no:invCtx.inv, scope:'part', status:'open',
       client:txtOrNull(invCtx.client), sub_client:txtOrNull(invCtx.sub), country:txtOrNull(invCtx.country),
       bl_number:bl.value.trim(), reason:txtOrNull($('icReason')&&$('icReason').value), client_ref:txtOrNull($('icRef')&&$('icRef').value),
       claimed_value:numOrNull($('icVal')&&$('icVal').value), claimed_currency:txtOrNull($('icCur')&&$('icCur').value),
       notes:txtOrNull($('icNotes')&&$('icNotes').value), rows:rows,
-      event:(invCtx.claimId?'updated':'raised'), event_detail:'invoice '+invCtx.inv+(closed?' · closed':'') };
-    if(closed){ payload.resolution_type=txtOrNull($('icRes')&&$('icRes').value); payload.settled_value=numOrNull($('icSettled')&&$('icSettled').value); payload.settled_currency=txtOrNull($('icCur')&&$('icCur').value); }
+      event:(invCtx.claimId?'updated':'raised'), event_detail:'invoice '+invCtx.inv };
     invBusy=true; var b=$('icSave'); if(b){b.disabled=true;b.textContent='Saving…';}
     SB.rpc('save_crm_claim_full',{payload:payload}).then(function(res){ invBusy=false; if(b)b.disabled=false;
       if(res&&res.error){ if(b)b.textContent=(invCtx.claimId?'Save claim':'Raise claim'); toast(claimErr(res.error)); return; }
@@ -2338,8 +2338,7 @@ window.CRM = (function(){
   }
   function invClaimModalHtml(){ return ''
     +'<div class="modal-bg" id="invClaimModal"><div class="modal"><div class="modal-head"><span class="modal-x" role="button" tabindex="0" aria-label="Close" onclick="CRM.requestCloseModal(\'invClaimModal\')">&times;</span><div class="modal-title">Claim — invoice <span class="mono" id="icInv"></span></div><div class="modal-sub" id="icSub">—</div></div><div class="modal-body">'
-    +'<div class="msec" style="border-top:none;padding-top:0;margin-top:0">Status</div><div class="form-row" style="margin-bottom:10px"><label class="form-label">Lifecycle</label><div class="lifecycle" id="icLifecycle"><div class="lc-step sel-open" data-lc="open" onclick="CRM.setInvLifecycle(\'open\')"><span class="lc-n">Active</span>Open</div><span class="lc-arrow">→</span><div class="lc-step" data-lc="closed" onclick="CRM.setInvLifecycle(\'closed\')"><span class="lc-n">Done</span>Closed</div></div></div>'
-    +'<div class="closing-block" id="icClosing" style="display:none;margin-bottom:4px"><div class="grid2"><div><label class="form-label">Resolution type</label><select class="form-select" id="icRes"><option>Credit note</option><option>Replacement shipment</option><option>Price adjustment</option><option>Goodwill gesture</option><option>Insurance claim</option><option>Rejected — no fault</option></select></div><div><label class="form-label">Settled value <span style="text-transform:none;font-weight:400;color:var(--text3)">(negotiated)</span></label><input class="form-input mono" id="icSettled" inputmode="decimal" placeholder="agreed amount"/></div></div></div>'
+    +'<div class="msec" style="border-top:none;padding-top:0;margin-top:0">Status</div><div class="hint" style="margin:-4px 0 10px">Raising an invoice claim opens it as <b>Active</b>. Settle it later from the claim (Record settlement) — the settlement goes through approval before the claim closes.</div>'
     +'<div class="msec">Affected part-loads</div><div class="hint" style="margin:-4px 0 10px">Tick the composition rows this claim covers — across the invoice\'s containers.</div><div id="icPicker"></div>'
     +'<div class="msec">Claim details</div><div class="form-row" style="margin-bottom:10px"><label class="form-label">B/L number <span style="color:var(--red)">*</span></label><input class="form-input mono" id="icBl" placeholder="e.g. MAEU236451078"/></div>'
     +'<div class="grid2" style="margin-bottom:10px"><div><label class="form-label">Reason</label><select class="form-select" id="icReason"><option>Decay / rot on arrival</option><option>Temperature abuse in transit</option><option>Soft / overripe berries</option><option>Short weight</option><option>Wrong variety / spec</option><option>Late arrival / missed market</option><option>Documentation</option><option>Other</option></select></div><div><label class="form-label">Client\'s claim ref <span style="text-transform:none;font-weight:400;color:var(--text3)">(optional)</span></label><input class="form-input mono" id="icRef" placeholder="their reference #"/></div></div>'
