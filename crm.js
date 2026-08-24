@@ -1206,7 +1206,7 @@ window.CRM = (function(){
     var chip={'new':['b-neutral','New claim'],open:['b-fail','Open'],pending:['b-warn','Settlement pending approval'],closed:['b-neutral','Closed'],cancelled:['b-neutral','Cancelled']}[st]||['b-fail','Open'];
     sl.innerHTML='<span class="badge '+chip[0]+'">'+chip[1]+'</span>'+(st==='new'?' <span class="cell-sub">— will be raised as Open (active)</span>':(st==='open'?' <span class="cell-sub">— active; settle it when you\'ve agreed a value with the client</span>':''));
     if(blk) blk.style.display=(st==='new')?'none':'block';
-    if(ban) ban.innerHTML=''; if(intro) intro.innerHTML=''; if(act) act.innerHTML=''; if(form) form.style.display='none';
+    if(ban) ban.innerHTML=''; if(intro){ intro.innerHTML=''; intro.style.display=''; } if(act) act.innerHTML=''; if(form) form.style.display='none';
     var readonly=(st==='pending'||st==='closed');
     setClaimReadonly(readonly);
     if(save) save.style.display=(st==='new'||st==='open')?'':'none';
