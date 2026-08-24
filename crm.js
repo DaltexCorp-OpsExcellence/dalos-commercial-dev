@@ -1879,7 +1879,7 @@ window.CRM = (function(){
     +'<div class="ev-ref" id="claimRef"></div><div class="hint">The CQC report is the quality evidence; the export inspection is reference only.</div>'
     +'<div class="msec">Notes</div><textarea class="form-ta" id="claimNotes" style="height:60px;resize:vertical" placeholder="Client rejected 2 pallets on arrival; decay concentrated in stems…"></textarea>'
     +'<div class="msec">Container timeline</div><div class="audit" id="claimTimeline"><div class="hint">—</div></div>'
-    +'<div class="msec">History</div><div class="audit" id="claimAudit"></div>'
+    +'<div class="msec">Claim History</div><div class="audit" id="claimAudit"></div>'
     +'</div><div class="modal-foot" style="justify-content:space-between"><span class="link-btn" id="claimCancelBtn" style="color:var(--red)" title="Removes a claim opened in error — kept in history as Cancelled" onclick="CRM.cancelClaim()">Cancel claim</span><span style="display:flex;gap:8px"><button class="btn btn-secondary" id="claimRedirectBtn" title="Redirect these goods to another client — links this claim if it is saved" onclick="CRM.redirectFromClaim()">Redirect goods →</button><button class="btn btn-secondary" onclick="CRM.requestCloseModal(\'claimModal\')">Close</button><button class="btn btn-primary" id="claimSaveBtn" onclick="CRM.saveClaim()">Save claim</button></span></div></div></div>';
   }
   function gradeModalHtml(){ return ''
