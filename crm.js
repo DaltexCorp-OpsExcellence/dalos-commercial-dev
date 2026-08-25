@@ -2685,13 +2685,13 @@ window.CRM = (function(){
       source:r.source||'', status:r.status||'', stage:r.stage||0, disposition:r.disposition||null,
       assignedRegion:r.assigned_region||'', assignedTo:r.assigned_to||null, assignedToName:r.assigned_to_name||'', assignedBy:r.assigned_by||null, assignedByName:r.assigned_by_name||'', assignedAt:r.assigned_at||null,
       qualifiedAt:r.qualified_at||null,
-      returnReason:r.return_reason||'', returnedAt:r.returned_at||null, returnedBy:r.returned_by||null,
+      returnReason:r.return_reason||'', returnedAt:r.returned_at||null, returnedBy:r.returned_by||null, returnedByName:r.returned_by_name||'',
       thread:(r.handoff_log&&r.handoff_log.length?r.handoff_log:[]),
       contact:r.contact_name||'', role:r.contact_role||'', email:r.email||'', phone:r.phone||'',
       port:r.destination_port||'', band:r.expected_volume_band||'', season:r.season_window||'', notes:r.notes||'',
       website:r.website||'', campaign:r.campaign_name||'', campaignId:r.campaign_id||null,
       cardPath:r.card_image_path||null, groupPath:r.group_image_path||null,
-      capturedAt:r.captured_at, capturedBy:r.captured_by, age:lmAge(r.captured_at), raw:r};
+      capturedAt:r.captured_at, capturedBy:r.captured_by, capturedByName:r.captured_by_name||'', age:lmAge(r.captured_at), raw:r};
   }
   function lmById(id){ for(var i=0;i<LM.rows.length;i++) if(LM.rows[i].id===id) return LM.rows[i]; return null; }
   /* A leads-list load should only re-render views that actually show LM.rows. The Show Mode
@@ -2785,12 +2785,15 @@ window.CRM = (function(){
      handoff_log thread (return / requeue / note / call), newest-first, + an inline composer. */
   function lmActivityHtml(l){
     var evs=[];
-    if(l.capturedAt) evs.push({at:l.capturedAt,title:'Captured via '+esc(lmSourceLabel(l.source)),who:''});
+    if(l.capturedAt) evs.push({at:l.capturedAt,title:'Captured via '+esc(lmSourceLabel(l.source)),who:l.capturedByName?esc(l.capturedByName):''});
     if(l.qualifiedAt) evs.push({at:l.qualifiedAt,title:'Qualified',who:''});
-    if(l.assignedAt && l.assignedRegion) evs.push({at:l.assignedAt,title:'Assigned to '+esc(lmRegionName(l.assignedRegion)||l.assignedRegion),who:l.assignedByName?'by '+esc(l.assignedByName):''});
+    if(l.assignedAt && l.assignedRegion) evs.push({at:l.assignedAt,title:'Assigned to '+esc(lmRegionName(l.assignedRegion)||l.assignedRegion),who:l.assignedByName?esc(l.assignedByName):''});
     (l.thread||[]).forEach(function(e){
-      var map={return:'Returned to marketing',requeue:'Re-queued to marketing',note:'Note',call:'Call logged',meeting:'Meeting logged'};
-      evs.push({at:e.at,title:map[e.kind]||'Update',who:e.byName?esc(e.byName):(e.kind==='return'?'Sales':(e.kind==='requeue'?'Marketing':'')),note:e.note||''});
+      var map={return:'Returned to marketing',requeue:'Re-queued to sales',note:'Note',call:'Call logged',meeting:'Meeting logged'};
+      var who=e.byName?esc(e.byName)
+        :(e.kind==='return'?(l.returnedByName?esc(l.returnedByName):'Sales')
+        :(e.kind==='requeue'?'Marketing':''));
+      evs.push({at:e.at,title:map[e.kind]||'Update',who:who,note:e.note||''});
     });
     evs.sort(function(a,b){ return (b.at||'').localeCompare(a.at||''); });
     var rows=evs.map(function(e){
@@ -3108,7 +3111,7 @@ window.CRM = (function(){
   var lmRet=null, lmRq=null;
   /* Append-only sales<->marketing handoff thread (l.thread ← crm_leads.handoff_log). Read-modify-write
      from the in-memory row; low-volume so a rare clobber is acceptable (atomic RPC is a Phase-2 item). */
-  function lmThreadEntry(kind,note){ return { at:new Date().toISOString(), by:(USER&&USER.id)||null, kind:kind, note:(note||'') }; }
+  function lmThreadEntry(kind,note){ return { at:new Date().toISOString(), by:(USER&&USER.id)||null, byName:(USER&&(USER.name||USER.email))||'', kind:kind, note:(note||'') }; }
   function lmThreadHtml(l){
     var t=(l.thread||[]); if(!t.length) return '';
     var rows=t.slice().reverse().map(function(e){
