@@ -3295,15 +3295,15 @@ window.CRM = (function(){
     return {state:'live', day:n, total:total};
   }
   function capBootstrap(){
-    if(CAP.loaded){ capSync(); return; }
+    if(CAP.loaded){ capSync(); capSyncCards(); return; }
     CAP.loaded=true;
     /* Eager preload the self-hosted capture libs the moment Show Mode mounts — while the rep still
        likely has signal — instead of at first Scan/Photo tap. Warms the SW cache for offline use. */
     try{ capLoadScript('lib/jsQR.js').catch(function(){}); capLoadScript('lib/qrcode.min.js').catch(function(){}); capLoadScript('lib/tesseract.min.js').catch(function(){}); }catch(e){}
-    capLoadQueue().then(function(items){ CAP.items=items.sort(function(a,b){return (b.captured_at||'').localeCompare(a.captured_at||'');}); capRenderList(); capRenderHead(); capSync(); }).catch(function(){});
+    capLoadQueue().then(function(items){ CAP.items=items.sort(function(a,b){return (b.captured_at||'').localeCompare(a.captured_at||'');}); capRenderList(); capRenderHead(); capSync(); capSyncCards(); }).catch(function(){});
     if(SB) SB.from('crm_campaigns').select('id,name,type,active,public_token,start_date,end_date').eq('active',true).order('created_at',{ascending:false}).then(function(res){ if(res&&!res.error){ CAP.campaigns=res.data||[]; if(!CAP.campaignId && CAP.campaigns.length) CAP.campaignId=capDefaultCampaign(CAP.campaigns); capRenderHead(); capLoadCampaign(); } }).catch(function(){});
-    try{ window.addEventListener('online',function(){ CAP.online=true; capRenderHead(); capSync(); capSyncDirty(); capLoadCampaign(); }); window.addEventListener('offline',function(){ CAP.online=false; capRenderHead(); }); }catch(e){}
-    if(!CAP._timer) CAP._timer=setInterval(function(){ if(CAP.online && capIsActive()){ if(capPending().length) capSync(); capSyncDirty(); capLoadCampaign(); } },20000);
+    try{ window.addEventListener('online',function(){ CAP.online=true; capRenderHead(); capSync(); capSyncDirty(); capSyncCards(); capLoadCampaign(); }); window.addEventListener('offline',function(){ CAP.online=false; capRenderHead(); }); }catch(e){}
+    if(!CAP._timer) CAP._timer=setInterval(function(){ if(CAP.online && capIsActive()){ if(capPending().length) capSync(); capSyncDirty(); capSyncCards(); capLoadCampaign(); } },20000);
     /* slide the sticky Save bar out of the way while a capture field is focused (keyboard up) so it never covers what you're typing */
     if(!CAP._kbBound){ CAP._kbBound=true;
       var isField=function(t){ return t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) && t.closest && t.closest('.lead-portal'); };
@@ -3407,6 +3407,23 @@ window.CRM = (function(){
         return SB.from('crm_leads').update(upd).eq('client_uuid',r.client_uuid).then(function(res){
           if(res && !res.error){ r._dirty=false; capPut(r); }
         });
+      }).then(function(){ capRenderList(); capLoadCampaign(); }).catch(function(){});
+    });
+  }
+
+  /* Recover a photo that was captured but never reached the bucket — e.g. an upload that failed
+     before the marketing→bucket RLS was fixed, or a transient error. capSync handles only un-synced
+     rows and capSyncDirty only _dirty rows, so a SYNCED row whose card upload failed is otherwise
+     stranded forever with the photo only in this device's IndexedDB. This retries the upload and,
+     on success, writes the storage path onto the cloud row. Runs on load / reconnect / the poll. */
+  function capSyncCards(){
+    if(!CAP.online || !SB) return;
+    var stuck=CAP.items.filter(function(r){ return r._synced && ((r._card_data && !r.card_image_path) || (r._group_data && !r.group_image_path)); });
+    if(!stuck.length) return;
+    stuck.forEach(function(r){
+      Promise.all([capUploadCard(r),capUploadGroup(r)]).then(function(){
+        if(!r.card_image_path && !r.group_image_path) return;   /* still failed — leave for the next pass */
+        return SB.from('crm_leads').update({ card_image_path:r.card_image_path||null, group_image_path:r.group_image_path||null }).eq('client_uuid',r.client_uuid).then(function(res){ if(res && !res.error){ capPut(r); } });
       }).then(function(){ capRenderList(); capLoadCampaign(); }).catch(function(){});
     });
   }
