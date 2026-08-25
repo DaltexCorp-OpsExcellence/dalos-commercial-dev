@@ -2674,6 +2674,9 @@ window.CRM = (function(){
   var LM_SOURCES=[['manual','Manual'],['qr_vcard','QR / vCard'],['ocr_card','Card OCR'],['public_form','Public form'],['csv_import','CSV import']];
   function lmSourceLabel(s){ for(var i=0;i<LM_SOURCES.length;i++) if(LM_SOURCES[i][0]===s) return LM_SOURCES[i][1]; return s||'—'; }
   function lmAge(ts){ if(!ts) return '—'; var d=Math.floor((Date.now()-new Date(ts).getTime())/86400000); if(d<=0) return 'today'; if(d===1) return '1d'; if(d<30) return d+'d'; return Math.floor(d/30)+'mo'; }
+  function lmDays(ts){ if(!ts) return 0; var d=Math.floor((Date.now()-new Date(ts).getTime())/86400000); return d<0?0:d; }
+  /* "waited Nd" phrasing off the inbox clock (assignedAt = when it was routed to the region) */
+  function lmWaited(ts){ var d=lmDays(ts); return d<=0?'today':(d===1?'1d':d+'d'); }
   function lmDate(ts){ if(!ts) return '—'; try{ return new Date(ts).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }catch(e){ return String(ts).slice(0,10); } }
   function lmMap(r){
     return {id:r.id, ref:'#'+String(r.id||'').slice(0,8),
@@ -4099,41 +4102,74 @@ window.CRM = (function(){
     var m=LM.myRegions||{}, ks=Object.keys(m);
     return ks.length?ks.map(function(s){return lmRegionName(s);}).join(' · '):'no region assigned';
   }
+  /* One consolidated inbox card: company anchor + region tag + wait-age + a single
+     status pill (state · routing); a plain middot metadata line replaces the chip row;
+     ref + "routed by" sit quiet in the footer beside the actions. */
+  function inboxCard(l){
+    var region=l.assignedRegion, mode=lmRoutingOf(region), mgr=lmIsManagerOf(region);
+    var days=lmDays(l.assignedAt), hot=days>=3;
+    var status='<span class="inb-status '+(mode==='assign'?'':'claim')+'">Unclaimed · '+(mode==='assign'?'Assign':'Claim')+'</span>';
+    var age='<span class="inb-age'+(hot?' hot':'')+'">waited '+lmWaited(l.assignedAt)+'</span>';
+    /* metadata line: contact (emphasised) · product · source · campaign */
+    var meta=[];
+    if(l.contact) meta.push('<span class="wname">'+esc(l.contact)+(l.role?' · '+esc(l.role):'')+'</span>');
+    if(l.product&&l.product!=='—') meta.push(esc(l.product));
+    if(l.band) meta.push(esc(l.band));
+    meta.push('Source: '+esc(lmSourceLabel(l.source)));
+    if(l.campaign) meta.push('Campaign: '+esc(l.campaign));
+    var acts;
+    if(mode==='assign'){
+      acts=mgr
+        ? '<button class="btn btn-primary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to member ▾</button>'
+        : '<span class="pchip mut" style="padding:5px 10px">Awaiting your manager</span>';
+    } else {
+      acts='<button class="btn btn-primary btn-sm" onclick="CRM.lmClaim(\''+l.id+'\')">Claim &amp; own</button>';
+      if(mgr) acts+='<button class="btn btn-secondary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to…</button>';
+    }
+    var openBtn='<button class="btn btn-secondary btn-sm" onclick="CRM.lmOpen(\''+l.id+'\')">Open lead</button>';
+    var routedBy=l.assignedByName?' · routed by '+esc(l.assignedByName):'';
+    return '<div class="inb inb-lead">'
+      +'<div class="inb-h"><span class="inb-t">'+esc(l.company)+'</span>'
+        +'<span class="rgtag">'+esc(lmRegionName(region)||'—')+'</span>'+age
+        +'<span style="margin-left:auto">'+status+'</span></div>'
+      +'<div class="inb-meta">'+meta.join('<span class="dot">·</span>')+'</div>'
+      +'<div class="inb-f"><span class="inb-ref"><span class="lot">'+esc(l.ref)+'</span>'+routedBy+'</span>'
+        +'<span class="gset" style="margin-left:auto;margin-top:0">'+openBtn+acts+'</span></div></div>';
+  }
   function paneInbox(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
     var list=inboxList();
-    var cards=list.map(function(l){
-      var region=l.assignedRegion, mode=lmRoutingOf(region), mgr=lmIsManagerOf(region);
-      var chips=[];
-      chips.push(bdg('badge-n',lmRegionName(region)||'—'));
-      if(l.contact) chips.push(bdg('badge-pass',l.contact+(l.role?' · '+l.role:'')));
-      if(l.product&&l.product!=='—') chips.push(bdg('badge-n',l.product));
-      if(l.band) chips.push(bdg('badge-n',esc(l.band)));
-      chips.push(bdg('badge-n',lmSourceLabel(l.source)));
-      if(l.campaign) chips.push(bdg('badge-n',l.campaign));
-      var routeChip='<span class="pchip '+(mode==='assign'?'ok':'mut')+'" title="region routing">Routing: '+(mode==='assign'?'Assign':'Claim')+'</span>';
-      var acts;
-      if(mode==='assign'){
-        acts=mgr
-          ? '<button class="btn btn-primary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to member ▾</button>'
-          : '<span class="pchip mut" style="padding:5px 10px">Awaiting assignment from your manager</span>';
-      } else {
-        acts='<button class="btn btn-primary btn-sm" onclick="CRM.lmClaim(\''+l.id+'\')">Claim &amp; own</button>';
-        if(mgr) acts+='<button class="btn btn-secondary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to…</button>';
-      }
-      acts+='<button class="btn btn-secondary btn-sm" onclick="CRM.lmOpen(\''+l.id+'\')">Open lead</button>';
-      return '<div class="inb"><div class="inb-h"><span class="lot">'+esc(l.ref)+'</span><span class="inb-t">'+esc(l.company)+'</span>'
-        +'<span style="margin-left:auto;display:flex;gap:6px;align-items:center">'+routeChip+bdg('badge-warn','unclaimed')+'</span></div>'
-        +'<div class="chips">'+chips.join('')+'</div>'
-        +'<div class="gset">'+acts+'</div></div>';
-    }).join('');
+    /* queue-health header — honest, all computed from the loaded rows */
+    var oldest=list.reduce(function(m,l){ return lmDays(l.assignedAt)>lmDays(m&&m.assignedAt)?l:m; }, list[0]||null);
+    var aging=list.filter(function(l){ return lmDays(l.assignedAt)>=3; }).length;
+    var kpis=kpiStrip([
+      ['Unclaimed',String(list.length),'in your region(s)'],
+      ['Oldest waiting',oldest?lmWaited(oldest.assignedAt):'—',oldest?esc(oldest.company):'nothing waiting'],
+      ['Aging 3d+',String(aging),aging?'needs attention':'all fresh']
+    ]);
+    /* By region when there's more than one region in view (admins, multi-region managers);
+       a single-region rep sees a flat list. */
+    var byRegion={}, order=[];
+    list.forEach(function(l){ var r=l.assignedRegion||'—'; if(!byRegion[r]){ byRegion[r]=[]; order.push(r); } byRegion[r].push(l); });
+    var grouped=order.length>1, cards;
+    if(grouped){
+      order.sort(function(a,b){ return (lmRegionName(a)||a).localeCompare(lmRegionName(b)||b); });
+      cards=order.map(function(r){
+        var g=byRegion[r], mode=lmRoutingOf(r), old=g.reduce(function(m,l){ return lmDays(l.assignedAt)>lmDays(m&&m.assignedAt)?l:m; },g[0]);
+        return '<div class="inb-rghdr"><span class="rn">'+esc(lmRegionName(r)||r)+'</span>'
+          +'<span class="route '+(mode==='assign'?'assign':'claim')+'">'+(mode==='assign'?'Assign':'Claim')+'</span>'
+          +'<span class="line"></span><span class="cnt">'+g.length+' unclaimed · oldest '+lmWaited(old.assignedAt)+'</span></div>'
+          +g.map(inboxCard).join('');
+      }).join('');
+    } else {
+      cards=list.map(inboxCard).join('');
+    }
     var emptyMsg=(!IS_ADMIN && !Object.keys(LM.myRegions||{}).length)
       ? 'You have no CRM region assigned yet — an admin can grant one under Admin → Users → Region access.'
       : 'No unclaimed leads in your region(s). Marketing qualifies a lead, then <b>Assign to region</b> to route it here.';
     return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Lead inbox · '+esc(lmInboxScopeLabel())+' · '+list.length+' unclaimed'
       +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="alert-warn" style="margin-bottom:12px">Leads assigned to your region, waiting for an owner. In <strong>Claim</strong> regions a rep takes ownership from here; in <strong>Assign</strong> regions a manager assigns each lead to a member. Routing is set per region under Setup → Region rules.</div>'
-      +(list.length?cards:'<div class="empty-state">'+emptyMsg+'</div>')+'</div>';
+      +(list.length?kpis+cards:'<div class="empty-state">'+emptyMsg+'</div>')+'</div>';
   }
   /* True when the user manages ≥1 region (admins always). Managers get the team pipeline. */
   function lmIsPipelineManager(){ return IS_ADMIN || !!(LM.myManagerRegions && Object.keys(LM.myManagerRegions).length); }
@@ -4169,10 +4205,10 @@ window.CRM = (function(){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'</td>'
         +'<td>'+owner+byline+'</td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'—')+'</td>'
-        +'<td>'+esc(l.product)+'</td><td>'+(l.campaign?esc(l.campaign):'<span class="cell-sub">—</span>')+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td>'
+        +'<td>'+esc(l.product)+'</td><td>'+(l.campaign?esc(l.campaign):'<span class="cell-sub">—</span>')+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td><td class="mono">'+lmWaited(l.assignedAt||l.capturedAt)+'</td>'
         +'<td onclick="event.stopPropagation()">'+(reassign||'<span class="cell-sub">—</span>')+'</td></tr>';
     }).join('');
-    if(!shown.length) rows='<tr><td colspan="9" class="cell-sub" style="padding:16px;text-align:center">'+(mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.')+'</td></tr>';
+    if(!shown.length) rows='<tr><td colspan="10" class="cell-sub" style="padding:16px;text-align:center">'+(mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.')+'</td></tr>';
     /* assignment filter — managers only (a rep only ever sees themselves) */
     var asgKeys=Object.keys(asg);
     var filterSel=mgr?'<select class="form-select" style="width:auto" onchange="CRM.lmSetPipeAsg(this.value)">'
@@ -4183,7 +4219,7 @@ window.CRM = (function(){
     var title=mgr?('Team pipeline · '+shown.length+(fil==='all'?'':' of '+full.length)+' lead(s)'):('My pipeline · '+shown.length+' lead(s) assigned to me');
     return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> '+title
       +' <span style="margin-left:auto;display:inline-flex;gap:6px;align-items:center">'+filterSel+'<button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Assigned to</th><th>Region</th><th>Product</th><th>Campaign</th><th>Stage</th><th>Assigned</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Assigned to</th><th>Region</th><th>Product</th><th>Campaign</th><th>Stage</th><th>Assigned</th><th>Age</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
   }
 
   /* ═══════════════════ FUNNEL destination ═══════════════════ */
@@ -4878,7 +4914,8 @@ function injectCrmCss(){
 .crmv .season-box-lbl{font-size:9px;color:var(--sidebar-muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:3px}
 .crmv .season-box select{font-size:12px;font-weight:700;color:#fff;background:transparent;border:none;outline:none;cursor:pointer;font-family:var(--font-body);padding:0;width:100%}
 .crmv .season-box select option{color:var(--text)}
-.crmv .nav-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--sidebar-muted);padding:12px 18px 5px;font-weight:600}
+.crmv .nav-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#b3aac7;padding:13px 18px 5px;font-weight:600;border-top:1px solid rgba(255,255,255,.06);margin-top:6px}
+.crmv .nav-label.nav-sublabel{border-top:none;margin-top:1px;padding:6px 18px 3px 30px;font-size:9px;letter-spacing:.13em;color:var(--sidebar-muted);opacity:.85}
 .crmv .nav-item{display:flex;align-items:center;gap:9px;padding:8px 18px;font-size:13px;color:var(--sidebar-text);cursor:pointer;transition:.15s}
 .crmv .nav-item svg{width:14px;height:14px;opacity:.65;flex-shrink:0}
 .crmv .nav-item:hover{background:var(--sidebar2)}
@@ -5475,6 +5512,27 @@ function injectCrmCss(){
 .crmv .inb-h{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .crmv .inb-t{font-size:14px;font-weight:600;color:var(--text)}
 .crmv .chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;margin-bottom:2px}
+/* consolidated inbox lead card (quick-wins redesign) */
+.crmv .inb-lead{position:relative;padding:13px 15px 12px 16px;overflow:hidden}
+.crmv .inb-lead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+.crmv .inb-lead .inb-t{font-family:var(--font-display,var(--font-body));font-size:18px;font-weight:400;line-height:1.15}
+.crmv .rgtag{font-size:11px;font-weight:600;color:var(--text2);border:1px solid var(--border2);border-radius:6px;padding:1px 8px}
+.crmv .inb-age{font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap}
+.crmv .inb-age.hot{color:var(--red)}
+.crmv .inb-status{font-size:11px;font-weight:700;letter-spacing:.01em;padding:3px 10px;border-radius:20px;white-space:nowrap;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}
+.crmv .inb-meta{margin-top:7px;font-size:12.5px;color:var(--text3);line-height:1.5}
+.crmv .inb-meta .wname{color:var(--text2);font-weight:600}
+.crmv .inb-meta .dot{color:var(--border);margin:0 7px}
+.crmv .inb-f{display:flex;align-items:center;margin-top:11px;padding-top:9px;border-top:1px solid var(--border)}
+.crmv .inb-ref{font-size:11px;color:var(--text3)}
+.crmv .inb-ref .lot{color:var(--text3)}
+.crmv .inb-rghdr{display:flex;align-items:center;gap:10px;margin:18px 2px 9px}
+.crmv .inb-rghdr .rn{font-family:var(--font-display,var(--font-body));font-size:15px;font-weight:400;color:var(--text)}
+.crmv .inb-rghdr .route{font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:2px 9px;border-radius:20px;background:var(--bg2);color:var(--text2)}
+.crmv .inb-rghdr .route.assign{background:var(--accent-soft,var(--bg2));color:var(--accent)}
+.crmv .inb-rghdr .route.claim{background:var(--green-bg);color:var(--green)}
+.crmv .inb-rghdr .line{flex:1;height:1px;background:var(--border)}
+.crmv .inb-rghdr .cnt{font-family:var(--font-mono);font-size:11.5px;color:var(--text3)}
 /* bulk bar */
 .crmv .bulkbar{display:none;align-items:center;gap:7px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;font-size:12px;color:var(--text2)}
 .crmv .bulkbar.on{display:flex}
