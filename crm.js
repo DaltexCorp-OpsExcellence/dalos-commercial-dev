@@ -2863,14 +2863,43 @@ window.CRM = (function(){
     var sec=function(t){ return '<div class="l-dsec">'+t+'</div>'; };
     var withOther=function(t,o){ return or(t)+(o?' <span class="cell-sub">· other: '+esc(o)+'</span>':''); };
     var imgBlock=function(id,label,path){ return path?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">'+label+'</div><img id="'+id+'" alt="'+label+'" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="'+id+'note">Loading…</div></div>':''; };
-    var photos=imgBlock('lmdet_img','Business card / badge',l.cardPath)+imgBlock('lmdet_gimg','Group photo with the lead',l.groupPath);
+    /* card photo moves into the hero (keeps the #lmdet_img id so the signed-URL fetch below still fills it);
+       the group photo stays in the Photos section (#lmdet_gimg). */
+    var photos=imgBlock('lmdet_gimg','Group photo with the lead',l.groupPath);
     var fu=(rp.follow_ups&&rp.follow_ups.length)?rp.follow_ups.map(function(k){return fuMap[k]||k;}):[];
-    var body='<div class="l-form"><div class="l-qhdr">'+esc(l.company)+'</div>'
+    /* ── build the action set first so the sticky bar can sit under the hero ── */
+    var acts=[];
+    acts.push('<button class="btn btn-secondary" onclick="CRM.lmEnrichOpen(\''+l.id+'\')">Enrich</button>');
+    if(lmIsCaptured(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmQualify(\''+l.id+'\')">Qualify</button>');
+    if(lmIsQualified(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>');
+    if(lmIsUnclaimed(l)){
+      var uMode=lmRoutingOf(l.assignedRegion), uMgr=lmIsManagerOf(l.assignedRegion);
+      if(uMode==='claim') acts.push('<button class="btn btn-primary" onclick="CRM.lmClaim(\''+l.id+'\')">Claim (assign to me)</button>');
+      if(uMgr) acts.push('<button class="btn btn-'+(uMode==='assign'?'primary':'secondary')+'" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to member…</button>');
+    }
+    if(lmIsAssigned(l) && l.assignedTo && lmIsManagerOf(l.assignedRegion)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>');
+    if(lmIsReturned(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmRequeueOpen(\''+l.id+'\')">Re-queue</button>');
+    if(!lmIsReturned(l)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmReturnOpen(\''+l.id+'\')">Return to marketing</button>');
+    /* ── hero: photo-forward + company + contact + status/region/product chips + provenance strip ── */
+    var heroPhoto=l.cardPath
+      ? '<div class="l-hero-photo"><img id="lmdet_img" alt="Business card / badge" style="display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="lmdet_imgnote">Loading…</div><span class="l-hero-badge">'+esc(lmSourceLabel(l.source))+'</span></div>'
+      : '';
+    var heroChips=lmStageBadge(l)
+      +(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'')
+      +(l.product&&l.product!=='—'?bdg('badge-n',l.product):'')
+      +(l.band?bdg('badge-n',esc(l.band)):'');
+    var prov='Source: '+esc(lmSourceLabel(l.source))+(l.campaign?' · Campaign: '+esc(l.campaign):'')+' · captured '+esc(l.age||lmAge(l.capturedAt));
+    var hero='<div class="l-hero">'+heroPhoto
+      +'<div class="l-hero-main"><div class="l-hero-co">'+esc(l.company)+'</div>'
+      +(l.contact?'<div class="l-hero-sub">'+esc(l.contact)+(l.role?' · '+esc(l.role):'')+'</div>':'')
+      +'<div class="l-hero-chips">'+heroChips+'</div>'
+      +'<div class="l-hero-prov">'+prov+' · <span class="lot">'+esc(l.ref)+'</span></div></div></div>';
+    var actbar='<div class="l-actbar">'+acts.join('')+'</div>';
+    var body='<div class="l-form l-detail">'+hero+actbar
       +sec('Identity')
       +row('Lead','<span class="lot">'+esc(l.ref)+'</span>')
       +row('Stage',lmStageBadge(l))
       +(l.disposition==='returned'?row('Returned',esc(l.returnReason||'—')+(l.returnedAt?' · '+esc(lmDate(l.returnedAt)):'')):'')
-      +row('Company',or(l.company))
       +row('Country · region',or(l.country)+' · '+(l.assignedRegion?esc(lmRegionName(l.assignedRegion)):'<span class="cell-sub">unassigned</span>'))
       +(lmIsAssigned(l)?row('Owner',l.assignedTo?((lmIsMine(l)?'You':esc(l.assignedToName||'Another rep'))+(l.assignedByName?' <span class="cell-sub">· by '+esc(l.assignedByName)+'</span>':'')):'<span class="cell-sub">Unclaimed · in the region inbox</span>'):'')
       +row('Contact · role',or(l.contact)+(l.role?' · '+esc(l.role):''))
@@ -2897,25 +2926,14 @@ window.CRM = (function(){
       +sec('Notes')
       +row('Notes',l.notes?esc(l.notes).replace(/\n/g,'<br>'):'<span class="cell-sub">—</span>')
       +sec('Photos / files')
-      +(photos||row('Uploaded','<span class="cell-sub">none</span>'))
+      +(l.cardPath?row('Business card / badge','<span class="cell-sub">shown above</span>'):'')
+      +(photos||(!l.cardPath?row('Uploaded','<span class="cell-sub">none</span>'):''))
       +sec('Provenance')
       +row('Source · campaign',or(lmSourceLabel(l.source))+(l.campaign?' · '+esc(l.campaign):''))
       +row('Captured',or(lmDate(l.capturedAt))+' · '+esc(l.age))
       +lmDealStepperHtml(l)
       +lmThreadHtml(l);
-    var acts=[];
-    acts.push('<button class="btn btn-secondary" onclick="CRM.lmEnrichOpen(\''+l.id+'\')">Enrich</button>');
-    if(lmIsCaptured(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmQualify(\''+l.id+'\')">Qualify</button>');
-    if(lmIsQualified(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>');
-    if(lmIsUnclaimed(l)){
-      var uMode=lmRoutingOf(l.assignedRegion), uMgr=lmIsManagerOf(l.assignedRegion);
-      if(uMode==='claim') acts.push('<button class="btn btn-primary" onclick="CRM.lmClaim(\''+l.id+'\')">Claim (assign to me)</button>');
-      if(uMgr) acts.push('<button class="btn btn-'+(uMode==='assign'?'primary':'secondary')+'" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to member…</button>');
-    }
-    if(lmIsAssigned(l) && l.assignedTo && lmIsManagerOf(l.assignedRegion)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>');
-    if(lmIsReturned(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmRequeueOpen(\''+l.id+'\')">Re-queue</button>');
-    if(!lmIsReturned(l)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmReturnOpen(\''+l.id+'\')">Return to marketing</button>');
-    body+='<div class="l-formact">'+acts.join('')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div></div>';
+    body+='<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div></div>';
     showDlv('Lead',body);
     /* fetch a signed URL for the stored business-card photo (private bucket) */
     if(l.cardPath && SB){
@@ -5429,6 +5447,18 @@ function injectCrmCss(){
 .crmv .l-formnote{font-size:12px;color:var(--text3);line-height:1.45;margin-bottom:10px}
 .crmv .l-formact{display:flex;gap:8px;margin-top:16px}
 .crmv .l-qhdr{font-family:var(--font-display);font-size:18px;margin-bottom:6px}
+/* lead-detail drawer redesign: hero + sticky action bar */
+.crmv .l-detail .l-hero{display:flex;gap:14px;padding:2px 0 12px}
+.crmv .l-hero-photo{position:relative;flex:0 0 92px;width:92px;height:115px}
+.crmv .l-hero-photo img{width:92px;height:115px;object-fit:cover;border-radius:10px;border:1px solid var(--border);background:#fff;cursor:zoom-in;display:block}
+.crmv .l-hero-photo .cell-sub{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;border:1px solid var(--border);border-radius:10px;background:var(--card);font-size:10px;padding:4px}
+.crmv .l-hero-badge{position:absolute;left:6px;bottom:6px;font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;background:rgba(34,31,43,.72);color:#fff;border-radius:5px;padding:2px 6px}
+.crmv .l-hero-main{min-width:0;flex:1}
+.crmv .l-hero-co{font-family:var(--font-display);font-size:22px;line-height:1.08;color:var(--text)}
+.crmv .l-hero-sub{font-size:13px;color:var(--text2);font-weight:600;margin-top:2px}
+.crmv .l-hero-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
+.crmv .l-hero-prov{font-size:11.5px;color:var(--text3);margin-top:9px;line-height:1.5}
+.crmv .l-detail .l-actbar{position:sticky;top:0;z-index:3;display:flex;gap:8px;flex-wrap:wrap;margin:0 -16px 6px;padding:11px 16px;background:var(--bg);border-top:1px solid var(--border);border-bottom:1px solid var(--border);box-shadow:0 5px 12px -9px rgba(0,0,0,.4)}
 .crmv .l-qsec{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin:14px 0 8px}
 .crmv .l-qgate{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)}
 .crmv .l-qgate>div:first-child{font-size:13px;color:var(--text2)}
