@@ -2761,18 +2761,66 @@ window.CRM = (function(){
      Advanceable only once a lead has an owner (Accepted). Who: the owner, a manager of the lead's
      region, or an admin (lmIsManagerOf already folds in admin). Persists in crm_leads.stage (3–7). */
   function lmCanAdvance(l){ return !lmIsReturned(l) && !!l.assignedTo && (lmIsMine(l)||lmIsManagerOf(l.assignedRegion)); }
+  /* Deal progress — ALWAYS shown (read-only until the lead is Accepted). Maps the lead onto the
+     8-stage funnel via lmFunnelStage; advance controls appear only for the owner/manager/admin. */
   function lmDealStepperHtml(l){
-    if(lmIsReturned(l)||!l.assignedTo) return '';
-    var cur=(l.stage>=2?l.stage:2);
-    var chips=L_STAGES.slice(2).map(function(s){ return '<span class="badge '+(s.i===cur?(s.badge||'badge-pass'):'badge-n')+'"'+(s.i===cur?'':' style="opacity:.45"')+'>'+esc(s.label)+'</span>'; }).join(' ');
+    if(lmIsReturned(l)) return '<div class="l-qsec">Deal progress</div><div class="cell-sub">Returned to marketing'+(l.returnReason?' · '+esc(l.returnReason):'')+'. Re-queue to resume the funnel.</div>';
+    var cur=lmFunnelStage(l);
+    var steps=L_STAGES.map(function(s,ix){
+      var st=s.i<cur?'done':(s.i===cur?'now':'todo');
+      return '<span class="l-step '+st+'">'+esc(s.label)+'</span>'+(ix<L_STAGES.length-1?'<span class="l-stepbar'+(s.i<cur?' done':'')+'"></span>':'');
+    }).join('');
     var ctl='';
     if(lmCanAdvance(l)){
-      var parts=[];
-      if(cur>2) parts.push('<button class="btn btn-secondary btn-sm" onclick="CRM.lmSetDealStage(\''+l.id+'\','+(cur-1)+')">← '+esc(L_STAGES[cur-1].label)+'</button>');
-      if(cur<7) parts.push('<button class="btn btn-primary btn-sm" onclick="CRM.lmSetDealStage(\''+l.id+'\','+(cur+1)+')">'+esc(L_STAGES[cur+1].label)+' →</button>');
-      ctl='<div style="display:flex;gap:6px;margin-top:8px">'+parts.join('')+'</div>';
+      var c=(l.stage>=2?l.stage:2), parts=[];
+      if(c>2) parts.push('<button class="btn btn-secondary btn-sm" onclick="CRM.lmSetDealStage(\''+l.id+'\','+(c-1)+')">← '+esc(L_STAGES[c-1].label)+'</button>');
+      if(c<7) parts.push('<button class="btn btn-primary btn-sm" onclick="CRM.lmSetDealStage(\''+l.id+'\','+(c+1)+')">'+esc(L_STAGES[c+1].label)+' →</button>');
+      ctl='<div style="display:flex;gap:6px;margin-top:10px">'+parts.join('')+'</div>';
+    } else if(!l.assignedTo){
+      ctl='<div class="cell-sub" style="margin-top:8px">Deal stages open once the lead is accepted (claimed or assigned to a rep).</div>';
     }
-    return '<div class="l-qsec">Deal stage</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+chips+'</div>'+ctl;
+    return '<div class="l-qsec">Deal progress</div><div class="l-stepper">'+steps+'</div>'+ctl;
+  }
+  /* Activity timeline — lifecycle events (from timestamps already fetched) merged with the
+     handoff_log thread (return / requeue / note / call), newest-first, + an inline composer. */
+  function lmActivityHtml(l){
+    var evs=[];
+    if(l.capturedAt) evs.push({at:l.capturedAt,title:'Captured via '+esc(lmSourceLabel(l.source)),who:''});
+    if(l.qualifiedAt) evs.push({at:l.qualifiedAt,title:'Qualified',who:''});
+    if(l.assignedAt && l.assignedRegion) evs.push({at:l.assignedAt,title:'Assigned to '+esc(lmRegionName(l.assignedRegion)||l.assignedRegion),who:l.assignedByName?'by '+esc(l.assignedByName):''});
+    (l.thread||[]).forEach(function(e){
+      var map={return:'Returned to marketing',requeue:'Re-queued to marketing',note:'Note',call:'Call logged',meeting:'Meeting logged'};
+      evs.push({at:e.at,title:map[e.kind]||'Update',who:e.byName?esc(e.byName):(e.kind==='return'?'Sales':(e.kind==='requeue'?'Marketing':'')),note:e.note||''});
+    });
+    evs.sort(function(a,b){ return (b.at||'').localeCompare(a.at||''); });
+    var rows=evs.map(function(e){
+      return '<div class="l-ev"><span class="l-ev-dot"></span><div class="l-ev-b">'
+        +'<div class="l-ev-t">'+e.title+'</div>'
+        +(e.note?'<div class="l-ev-n">'+esc(e.note).replace(/\n/g,'<br>')+'</div>':'')
+        +'<div class="l-ev-m">'+[e.who,e.at?esc(lmDate(e.at)):''].filter(Boolean).join(' · ')+'</div></div></div>';
+    }).join('') || '<div class="cell-sub" style="padding:4px 0">No activity yet.</div>';
+    var composer=canEditLeadStatus()
+      ? '<div class="l-compose"><select id="lm_note_kind" class="form-select"><option value="note">Note</option><option value="call">Call</option><option value="meeting">Meeting</option></select>'
+        +'<input id="lm_note_body" class="form-input" placeholder="Add a note or log a call…" onkeydown="if(event.key===\'Enter\'){event.preventDefault();CRM.lmNoteSave(\''+l.id+'\');}"/>'
+        +'<button class="btn btn-primary btn-sm" onclick="CRM.lmNoteSave(\''+l.id+'\')">Post</button></div>'
+      : '';
+    return '<div class="l-qsec">Activity</div>'+composer+'<div class="l-acts">'+rows+'</div>';
+  }
+  /* Append a note / call / meeting to crm_leads.handoff_log (reuse the jsonb, no schema change).
+     Read-modify-write like return/requeue; keeps the drawer open and re-renders it. */
+  function lmNoteSave(id){
+    if(!canEditLeadStatus()){ toast('<b>Not permitted</b> · you have view-only access to leads'); return; }
+    var l=lmById(id); if(!l) return;
+    var kSel=$('lm_note_kind'), bEl=$('lm_note_body');
+    var kind=(kSel&&kSel.value)||'note', txt=((bEl&&bEl.value)||'').trim();
+    if(!txt){ if(bEl) bEl.focus(); return; }
+    if(!SB){ toast('No connection.'); return; }
+    var entry={ at:new Date().toISOString(), by:(USER&&USER.id)||null, byName:(USER&&(USER.name||USER.email))||'You', kind:kind, note:txt };
+    var thread=(l.thread?l.thread.slice():[]); thread.push(entry);
+    SB.from('crm_leads').update({ handoff_log:thread, updated_at:new Date().toISOString() }).eq('id',id).then(function(res){
+      if(res&&res.error){ toast('<b>Save failed.</b> '+esc(res.error.message||'')); return; }
+      l.thread=thread; lmOpen(id); toast(kind==='call'?'Call logged.':(kind==='meeting'?'Meeting logged.':'Note added.'));
+    }).catch(function(e){ toast('<b>Save failed.</b> '+esc(String(e))); });
   }
   function lmSetDealStage(id,n){
     var l=lmById(id); if(!l) return;
@@ -2936,7 +2984,7 @@ window.CRM = (function(){
       +row('Source · campaign',or(lmSourceLabel(l.source))+(l.campaign?' · '+esc(l.campaign):''))
       +row('Captured',or(lmDate(l.capturedAt))+' · '+esc(l.age))
       +lmDealStepperHtml(l)
-      +lmThreadHtml(l);
+      +lmActivityHtml(l);
     body+='<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div></div>';
     showDlv('Lead',body);
     /* fetch a signed URL for the stored business-card photo (private bucket) */
@@ -4876,7 +4924,7 @@ window.CRM = (function(){
     lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
@@ -5463,6 +5511,25 @@ function injectCrmCss(){
 .crmv .l-detail .l-drow{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:baseline}
 .crmv .l-detail .l-drow>span:last-child{text-align:left}
 .crmv .l-detail .l-drow>span:first-child{color:var(--text3)}
+/* deal-progress stepper */
+.crmv .l-stepper{display:flex;align-items:center;flex-wrap:wrap;gap:4px 0}
+.crmv .l-step{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap;background:var(--card);border:1px solid var(--border2);color:var(--text3)}
+.crmv .l-step.done{background:var(--green-bg);color:var(--green);border-color:transparent}
+.crmv .l-step.now{background:var(--accent);color:#fff;border-color:transparent}
+.crmv .l-stepbar{width:12px;height:2px;background:var(--border);margin:0 2px;flex:0 0 auto}
+.crmv .l-stepbar.done{background:var(--green)}
+/* activity timeline + composer */
+.crmv .l-compose{display:flex;gap:6px;margin-bottom:12px}
+.crmv .l-compose .form-select{width:auto;flex:0 0 auto}
+.crmv .l-compose .form-input{flex:1;min-width:0}
+.crmv .l-acts{display:flex;flex-direction:column}
+.crmv .l-ev{display:flex;gap:11px;padding:9px 0}
+.crmv .l-ev+.l-ev{border-top:1px solid var(--border)}
+.crmv .l-ev-dot{flex:0 0 8px;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:5px}
+.crmv .l-ev-b{min-width:0;flex:1}
+.crmv .l-ev-t{font-size:13px;color:var(--text2);font-weight:500}
+.crmv .l-ev-n{font-size:12.5px;color:var(--text);margin-top:2px;line-height:1.45}
+.crmv .l-ev-m{font-size:11px;color:var(--text3);margin-top:2px}
 .crmv .l-hero-main{min-width:0;flex:1}
 .crmv .l-hero-co{font-family:var(--font-display);font-size:22px;line-height:1.08;color:var(--text)}
 .crmv .l-hero-sub{font-size:13px;color:var(--text2);font-weight:600;margin-top:2px}
