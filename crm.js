@@ -2881,10 +2881,14 @@ window.CRM = (function(){
     if(lmIsReturned(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmRequeueOpen(\''+l.id+'\')">Re-queue</button>');
     if(!lmIsReturned(l)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmReturnOpen(\''+l.id+'\')">Return to marketing</button>');
     /* ── hero: photo-forward + company + contact + status/region/product chips + provenance strip ── */
+    var mono=esc(((l.company||'?').trim().charAt(0)||'?').toUpperCase());
     var heroPhoto=l.cardPath
       ? '<div class="l-hero-photo"><img id="lmdet_img" alt="Business card / badge" style="display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="lmdet_imgnote">Loading…</div><span class="l-hero-badge">'+esc(lmSourceLabel(l.source))+'</span></div>'
-      : '';
-    var heroChips=lmStageBadge(l)
+      : '<div class="l-hero-photo l-hero-mono"><span>'+mono+'</span><span class="l-hero-badge">'+esc(lmSourceLabel(l.source))+'</span></div>';
+    var heroStatus=lmIsUnclaimed(l)
+      ? '<span class="l-hero-status">Unclaimed · '+(lmRoutingOf(l.assignedRegion)==='assign'?'Assign':'Claim')+'</span>'
+      : lmStageBadge(l);
+    var heroChips=heroStatus
       +(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'')
       +(l.product&&l.product!=='—'?bdg('badge-n',l.product):'')
       +(l.band?bdg('badge-n',esc(l.band)):'');
@@ -5452,7 +5456,13 @@ function injectCrmCss(){
 .crmv .l-hero-photo{position:relative;flex:0 0 92px;width:92px;height:115px}
 .crmv .l-hero-photo img{width:92px;height:115px;object-fit:cover;border-radius:10px;border:1px solid var(--border);background:#fff;cursor:zoom-in;display:block}
 .crmv .l-hero-photo .cell-sub{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;border:1px solid var(--border);border-radius:10px;background:var(--card);font-size:10px;padding:4px}
+.crmv .l-hero-mono{display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:10px;background:linear-gradient(150deg,var(--card),var(--bg2))}
+.crmv .l-hero-mono>span:first-child{font-family:var(--font-display);font-size:44px;color:var(--accent);line-height:1}
 .crmv .l-hero-badge{position:absolute;left:6px;bottom:6px;font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;background:rgba(34,31,43,.72);color:#fff;border-radius:5px;padding:2px 6px}
+.crmv .l-hero-status{font-size:11px;font-weight:700;letter-spacing:.01em;padding:2px 10px;border-radius:20px;white-space:nowrap;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}
+.crmv .l-detail .l-drow{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:baseline}
+.crmv .l-detail .l-drow>span:last-child{text-align:left}
+.crmv .l-detail .l-drow>span:first-child{color:var(--text3)}
 .crmv .l-hero-main{min-width:0;flex:1}
 .crmv .l-hero-co{font-family:var(--font-display);font-size:22px;line-height:1.08;color:var(--text)}
 .crmv .l-hero-sub{font-size:13px;color:var(--text2);font-weight:600;margin-top:2px}
