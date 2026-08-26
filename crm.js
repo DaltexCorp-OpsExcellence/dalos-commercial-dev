@@ -4571,7 +4571,7 @@ window.CRM = (function(){
     var body='<div class="l-form"><div class="l-qhdr">'+esc(c.name)+' &nbsp;'+pill+'</div>'
       +(c.logo_url?'<div style="margin:4px 0 10px"><img src="'+esc(c.logo_url)+'" style="max-height:48px;max-width:150px;background:#fff;border-radius:6px;padding:4px;border:1px solid var(--border)"/></div>':'')
       +row('Type', esc(c.type||'—'))
-      +row('Selling product(s)', (c.products&&c.products.length)?c.products.map(function(p){return bdg('badge-park',p);}).join(' '):'<span class="cell-sub">—</span>')
+      +row('Selling product(s)', (c.products&&c.products.length)?(c.products.map(function(p){return bdg('badge-park',p);}).join(' ')+(c.products_other?' <span class="cell-sub">· other: '+esc(c.products_other)+'</span>':'')):'<span class="cell-sub">—</span>')
       +row('Status', esc(stateLbl)+(stateLbl==='Scheduled'&&c.start_date?' <span class="cell-sub">· opens '+esc(c.start_date)+'</span>':(stateLbl==='Ended'&&c.end_date?' <span class="cell-sub">· closed after '+esc(c.end_date)+'</span>':'')))
       +row('Dates', esc(dates))
       +row('Location', c.location?esc(c.location):'—')
@@ -4591,7 +4591,7 @@ window.CRM = (function(){
       el.innerHTML=m.map(function(src){ return '<img src="'+src+'" style="width:100%;height:118px;object-fit:cover;border-radius:10px;border:1px solid var(--border);cursor:zoom-in" onclick="CRM.campLightbox(this.src)"/>'; }).join('');
     }).catch(function(){ var el=$('campview_media'); if(el) el.textContent='Could not load pictures.'; });
   }
-  function campProdChip(btn){ var p=btn.getAttribute('data-p'); CAMP.products[p]=!CAMP.products[p]; btn.classList.toggle('on',!!CAMP.products[p]); }
+  function campProdChip(btn){ var p=btn.getAttribute('data-p'); CAMP.products[p]=!CAMP.products[p]; btn.classList.toggle('on',!!CAMP.products[p]); if(p==='Other'){ var w=$('camp_other_wrap'); if(w){ w.style.display=CAMP.products['Other']?'block':'none'; if(CAMP.products['Other']){ var o=$('camp_products_other'); if(o) o.focus(); } } } }
   function campProdChipsHtml(){ return CAP_PRODUCTS.map(function(p){ return '<button type="button" class="capchip'+(CAMP.products[p]?' on':'')+'" data-p="'+esc(p)+'" onclick="CRM.campProdChip(this)">'+esc(p)+'</button>'; }).join(''); }
   function campNew(id){
     CAMP.editId=id||null; CAMP.logoData=null; CAMP.media=[]; CAMP.products={};
@@ -4608,6 +4608,7 @@ window.CRM = (function(){
       +'<div><label class="form-label" style="margin-top:8px">Currency</label><select class="form-select" id="camp_cur">'+curOpts+'</select></div></div>'
       +'<label class="form-label" style="margin-top:8px">Selling product(s) <span class="cell-sub" style="text-transform:none;letter-spacing:0">(which crop(s) this campaign targets — pick any — powers the cross-sell view)</span></label>'
       +'<div class="capchips" id="camp_products">'+campProdChipsHtml()+'</div>'
+      +'<div id="camp_other_wrap" style="display:'+(CAMP.products['Other']?'block':'none')+';margin-top:6px">'+field('camp_products_other','Other product(s) — optional',(c&&c.products_other)||'','e.g. Figs, Dates')+'</div>'
       +'<div class="grid2"><div>'+dateField('camp_start','Start date',c&&c.start_date?c.start_date:'')+'</div><div>'+dateField('camp_end','End date',c&&c.end_date?c.end_date:'')+'</div></div>'
       +'<div class="grid2"><div>'+field('camp_location','Location (optional)',c&&c.location?c.location:'','e.g. Hong Kong · AsiaWorld-Expo')+'</div>'
       +'<div><label class="form-label" style="margin-top:8px">Time zone</label><select class="form-select" id="camp_tz">'+tzOpts+'</select></div></div>'
@@ -4640,6 +4641,7 @@ window.CRM = (function(){
     var tz=($('camp_tz')||{}).value||'Africa/Cairo';
     var rec={ name:name, type:($('camp_type')||{}).value||'exhibition', currency:($('camp_cur')||{}).value||'EUR',
       products:(function(){ var a=Object.keys(CAMP.products||{}).filter(function(p){return CAMP.products[p];}); return a.length?a:null; })(),
+      products_other:(CAMP.products&&CAMP.products['Other'])?((($('camp_products_other')||{}).value||'').trim()||null):null,
       start_date:start||null, end_date:end||null, cost:cost,
       location:(($('camp_location')||{}).value||'').trim()||null, timezone:tz,
       media:((CAMP.media&&CAMP.media.length)?CAMP.media:null),
