@@ -2690,7 +2690,7 @@ window.CRM = (function(){
       thread:(r.handoff_log&&r.handoff_log.length?r.handoff_log:[]),
       contact:r.contact_name||'', role:r.contact_role||'', email:r.email||'', phone:r.phone||'',
       port:r.destination_port||'', band:r.expected_volume_band||'', season:r.season_window||'', notes:r.notes||'',
-      website:r.website||'', campaign:r.campaign_name||'', campaignId:r.campaign_id||null, campaignProduct:r.campaign_product||'',
+      website:r.website||'', campaign:r.campaign_name||'', campaignId:r.campaign_id||null, campaignProducts:r.campaign_products||[],
       cardPath:r.card_image_path||null, groupPath:r.group_image_path||null,
       capturedAt:r.captured_at, capturedBy:r.captured_by, capturedByName:r.captured_by_name||'', age:lmAge(r.captured_at), raw:r};
   }
@@ -4480,7 +4480,7 @@ window.CRM = (function(){
 
   /* ═══════════════════ CAMPAIGNS destination (REAL — crm_campaigns) ═══════════════════ */
   var FORM_HOST=(/-dev|localhost|127\.0\.0\.1/.test(location.host+location.pathname)?'https://daltexcorp-opsexcellence.github.io/daltex-lead-form-dev/':'https://daltexcorp-opsexcellence.github.io/daltex-lead-form/');   /* public capture form: -dev on staging, prod form on prod — resolved by host so promote is a clean copy */
-  var CAMP={items:[],loaded:false,loading:false,logoData:null,media:[],editId:null,qrToken:null};
+  var CAMP={items:[],loaded:false,loading:false,logoData:null,media:[],editId:null,qrToken:null,products:{}};
   function campLocalToday(tz){ try{ return new Date().toLocaleDateString('en-CA',{timeZone:tz||'UTC'}); }catch(e){ return new Date().toISOString().slice(0,10); } }
   var CAMP_TYPES=[['exhibition','Exhibition'],['digital','Digital'],['research','Research'],['referral','Referral'],['other','Other']];
   var CAMP_CUR=[['EUR','€ EUR'],['USD','$ USD'],['GBP','£ GBP']];
@@ -4571,7 +4571,7 @@ window.CRM = (function(){
     var body='<div class="l-form"><div class="l-qhdr">'+esc(c.name)+' &nbsp;'+pill+'</div>'
       +(c.logo_url?'<div style="margin:4px 0 10px"><img src="'+esc(c.logo_url)+'" style="max-height:48px;max-width:150px;background:#fff;border-radius:6px;padding:4px;border:1px solid var(--border)"/></div>':'')
       +row('Type', esc(c.type||'—'))
-      +row('Selling product', c.product?bdg('badge-park',c.product):'<span class="cell-sub">—</span>')
+      +row('Selling product(s)', (c.products&&c.products.length)?c.products.map(function(p){return bdg('badge-park',p);}).join(' '):'<span class="cell-sub">—</span>')
       +row('Status', esc(stateLbl)+(stateLbl==='Scheduled'&&c.start_date?' <span class="cell-sub">· opens '+esc(c.start_date)+'</span>':(stateLbl==='Ended'&&c.end_date?' <span class="cell-sub">· closed after '+esc(c.end_date)+'</span>':'')))
       +row('Dates', esc(dates))
       +row('Location', c.location?esc(c.location):'—')
@@ -4591,10 +4591,13 @@ window.CRM = (function(){
       el.innerHTML=m.map(function(src){ return '<img src="'+src+'" style="width:100%;height:118px;object-fit:cover;border-radius:10px;border:1px solid var(--border);cursor:zoom-in" onclick="CRM.campLightbox(this.src)"/>'; }).join('');
     }).catch(function(){ var el=$('campview_media'); if(el) el.textContent='Could not load pictures.'; });
   }
+  function campProdChip(btn){ var p=btn.getAttribute('data-p'); CAMP.products[p]=!CAMP.products[p]; btn.classList.toggle('on',!!CAMP.products[p]); }
+  function campProdChipsHtml(){ return CAP_PRODUCTS.map(function(p){ return '<button type="button" class="capchip'+(CAMP.products[p]?' on':'')+'" data-p="'+esc(p)+'" onclick="CRM.campProdChip(this)">'+esc(p)+'</button>'; }).join(''); }
   function campNew(id){
-    CAMP.editId=id||null; CAMP.logoData=null; CAMP.media=[];
+    CAMP.editId=id||null; CAMP.logoData=null; CAMP.media=[]; CAMP.products={};
     var c=id?CAMP.items.filter(function(x){return x.id===id;})[0]:null;
     if(c&&c.logo_url) CAMP.logoData=c.logo_url;
+    if(c&&Array.isArray(c.products)) c.products.forEach(function(p){ if(p) CAMP.products[p]=true; });
     var typeOpts=CAMP_TYPES.map(function(o){return '<option value="'+o[0]+'"'+(c&&c.type===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('');
     var curOpts=CAMP_CUR.map(function(o){return '<option value="'+o[0]+'"'+((c?c.currency:'EUR')===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('');
     var tzOpts=CAMP_TZ.map(function(o){return '<option value="'+o[0]+'"'+((((c&&c.timezone)||'Africa/Cairo')===o[0])?' selected':'')+'>'+esc(o[1])+'</option>';}).join('');
@@ -4603,8 +4606,8 @@ window.CRM = (function(){
       +field('camp_name','Event / campaign name',c?c.name:'','e.g. Fruit Logistica 2026 — Berlin')
       +'<div class="grid2"><div>'+'<label class="form-label" style="margin-top:8px">Type</label><select class="form-select" id="camp_type">'+typeOpts+'</select></div>'
       +'<div><label class="form-label" style="margin-top:8px">Currency</label><select class="form-select" id="camp_cur">'+curOpts+'</select></div></div>'
-      +'<label class="form-label" style="margin-top:8px">Selling product <span class="cell-sub" style="text-transform:none;letter-spacing:0">(which crop this campaign targets — powers the cross-sell view)</span></label>'
-      +'<select class="form-select" id="camp_product"><option value="">— none —</option>'+CAP_PRODUCTS.map(function(p){return '<option value="'+esc(p)+'"'+(c&&c.product===p?' selected':'')+'>'+esc(p)+'</option>';}).join('')+'</select>'
+      +'<label class="form-label" style="margin-top:8px">Selling product(s) <span class="cell-sub" style="text-transform:none;letter-spacing:0">(which crop(s) this campaign targets — pick any — powers the cross-sell view)</span></label>'
+      +'<div class="capchips" id="camp_products">'+campProdChipsHtml()+'</div>'
       +'<div class="grid2"><div>'+dateField('camp_start','Start date',c&&c.start_date?c.start_date:'')+'</div><div>'+dateField('camp_end','End date',c&&c.end_date?c.end_date:'')+'</div></div>'
       +'<div class="grid2"><div>'+field('camp_location','Location (optional)',c&&c.location?c.location:'','e.g. Hong Kong · AsiaWorld-Expo')+'</div>'
       +'<div><label class="form-label" style="margin-top:8px">Time zone</label><select class="form-select" id="camp_tz">'+tzOpts+'</select></div></div>'
@@ -4636,7 +4639,7 @@ window.CRM = (function(){
     var cost=costRaw?Number(costRaw):null; if(cost!=null&&isNaN(cost)){ if(w) w.innerHTML='<div class="alert-fail" style="margin-top:10px">Cost must be a number.</div>'; return; }
     var tz=($('camp_tz')||{}).value||'Africa/Cairo';
     var rec={ name:name, type:($('camp_type')||{}).value||'exhibition', currency:($('camp_cur')||{}).value||'EUR',
-      product:(($('camp_product')||{}).value||'').trim()||null,
+      products:(function(){ var a=Object.keys(CAMP.products||{}).filter(function(p){return CAMP.products[p];}); return a.length?a:null; })(),
       start_date:start||null, end_date:end||null, cost:cost,
       location:(($('camp_location')||{}).value||'').trim()||null, timezone:tz,
       media:((CAMP.media&&CAMP.media.length)?CAMP.media:null),
@@ -5055,7 +5058,7 @@ window.CRM = (function(){
     capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall, capRemovePhoto:capRemovePhoto,
     capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup, capSignal:capSignal, capUnmark:capUnmark, capEditLoad:capEditLoad, capDelete:capDelete, capCancelEdit:capCancelEdit, captureDirty:capDirty,
     campNew:gm(campNew), campSave:gm(campSave), campToggle:gm(campToggle), campCopy:campCopy, campQr:campQr,
-    campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campMediaPick:campMediaPick, campMediaClear:campMediaClear, campView:campView, campLightbox:campLightbox, campRefresh:campRefresh
+    campQrDownload:campQrDownload, campLogoPick:campLogoPick, campLogoClear:campLogoClear, campMediaPick:campMediaPick, campMediaClear:campMediaClear, campView:campView, campLightbox:campLightbox, campRefresh:campRefresh, campProdChip:campProdChip
   };
 })();
 /* ── CRM island CSS (scoped to .crmv) — injected once ── */
