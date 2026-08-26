@@ -2919,7 +2919,7 @@ window.CRM = (function(){
     var or=function(v){ return (v==null||v===''||(Array.isArray(v)&&!v.length))?'<span class="cell-sub">—</span>':esc(Array.isArray(v)?v.join(', '):String(v)); };
     var sec=function(t){ return '<div class="l-dsec">'+t+'</div>'; };
     var withOther=function(t,o){ return or(t)+(o?' <span class="cell-sub">· other: '+esc(o)+'</span>':''); };
-    var imgBlock=function(id,label,path){ return path?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">'+label+'</div><img id="'+id+'" alt="'+label+'" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="'+id+'note">Loading…</div></div>':''; };
+    var imgBlock=function(id,label,path){ return path?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">'+label+'</div><img id="'+id+'" alt="'+label+'" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)CRM.campLightbox(this.src)"/><div class="cell-sub" id="'+id+'note">Loading…</div></div>':''; };
     /* card photo moves into the hero (keeps the #lmdet_img id so the signed-URL fetch below still fills it);
        the group photo stays in the Photos section (#lmdet_gimg). */
     var photos=imgBlock('lmdet_gimg','Group photo with the lead',l.groupPath);
@@ -2947,7 +2947,7 @@ window.CRM = (function(){
     /* ── hero: photo-forward + company + contact + status/region/product chips + provenance strip ── */
     var mono=esc(((l.company||'?').trim().charAt(0)||'?').toUpperCase());
     var heroPhoto=l.cardPath
-      ? '<div class="l-hero-photo"><img id="lmdet_img" alt="Business card / badge" style="display:none" onclick="if(this.src)window.open(this.src,\'_blank\')"/><div class="cell-sub" id="lmdet_imgnote">Loading…</div><span class="l-hero-badge">'+esc(lmSourceLabel(l.source))+'</span></div>'
+      ? '<div class="l-hero-photo"><img id="lmdet_img" alt="Business card / badge" style="display:none" onclick="if(this.src)CRM.campLightbox(this.src)"/><div class="cell-sub" id="lmdet_imgnote">Loading…</div><span class="l-hero-badge">'+esc(lmSourceLabel(l.source))+'</span></div>'
       : '<div class="l-hero-photo l-hero-mono"><span>'+mono+'</span><span class="l-hero-badge">'+esc(lmSourceLabel(l.source))+'</span></div>';
     var heroStatus=lmIsUnclaimed(l)
       ? '<span class="l-hero-status">Unclaimed · '+(lmRoutingOf(l.assignedRegion)==='assign'?'Assign':'Claim')+'</span>'
