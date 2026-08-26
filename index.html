@@ -924,7 +924,8 @@ function CRMHost(props){
       var key=k?(t+':'+k):t, now=Date.now(), last=_pvLastRef.current[key];
       if(last && now-last<15000) return;
       _pvLastRef.current[key]=now;
-      supabase.rpc('log_crm_page_view',{p_tab:t,p_lead_key:k||null});
+      /* supabase-js v2 query builders are lazy — must call .then() to actually send the request */
+      supabase.rpc('log_crm_page_view',{p_tab:t,p_lead_key:k||null}).then(function(){},function(){});
     }catch(e){/* logging must never affect nav */}
   }
   React.useEffect(function(){
