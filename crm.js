@@ -2642,7 +2642,7 @@ window.CRM = (function(){
      LEADS array + lead* handlers below still power the DEFERRED views (Lead
      inbox, Funnel, Conversion) — demo-only until the Phase-2 rules land.
      ═══════════════════════════════════════════════════════════════════════ */
-  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all'},myRegions:null,myManagerRegions:null,pipeAsg:'all',parkFilter:'all'};
+  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all'},myRegions:null,myManagerRegions:null,pipeAsg:'all',parkFilter:'all',xsFrom:'all',xsWants:'all',xsParked:true};
   /* Leads use the SAME region model as Tracking & Claims: regions (slug id + label) + region_members.
      Assignable regions = real regions from the loaded REGIONS list, excluding 'all' and the bucket. */
   function lmRealRegions(){ return REGIONS.filter(function(r){ return r.id!=='all' && !r.admin; }).map(function(r){ return [r.id,r.label]; }); }
@@ -3240,17 +3240,19 @@ window.CRM = (function(){
     if(LSUB.leads==='enr') pane=paneEnrichment();
     else if(LSUB.leads==='rej') pane=paneReturned();
     else if(LSUB.leads==='park') pane=paneParked();
+    else if(LSUB.leads==='xsell') pane=paneCrossSell();
     else if(LSUB.leads==='cap') pane=paneCapture();
     else pane=paneWorkspace();
-    /* Segment tabs: All leads · Needs enrichment · Returned · Parked. Capture (Show Mode) is its own
-       sidebar item, so it carries NO segment bar. */
+    /* Segment tabs: All leads · Needs enrichment · Returned · Parked · Cross-sell. Capture (Show
+       Mode) is its own sidebar item, so it carries NO segment bar. */
     if(LSUB.leads!=='cap'){
       var sc=LM.loaded?lmScope(LM.rows):[];
       var allN=LM.loaded?sc.filter(function(l){return !lmIsReturned(l)&&!lmIsParked(l);}).length:'';
       var enrN=LM.loaded?sc.filter(lmIsCaptured).length:'';
       var rejN=LM.loaded?sc.filter(lmIsReturned).length:'';
       var parkN=LM.loaded?sc.filter(lmIsParked).length:'';
-      bar=lsegBar('leads',[['ws',lmRegionScoped()?'My region':'All leads',allN,'badge-n'],['enr','Needs enrichment',enrN,'badge-warn'],['rej','Returned',rejN,'badge-fail'],['park','Parked',parkN,'badge-park']]);
+      var xsN=LM.loaded?sc.filter(function(l){return !!lmCrossSell(l);}).length:'';
+      bar=lsegBar('leads',[['ws',lmRegionScoped()?'My region':'All leads',allN,'badge-n'],['enr','Needs enrichment',enrN,'badge-warn'],['rej','Returned',rejN,'badge-fail'],['park','Parked',parkN,'badge-park'],['xsell','Cross-sell',xsN,'badge-n']]);
     }
     /* All Leads views (Workspace/Enrichment/Returned/Capture) are REAL now — no dummy draft/live chrome. */
     vc.innerHTML='<div class="lead-portal">'+bar+pane+'</div>';
@@ -3416,6 +3418,70 @@ window.CRM = (function(){
       +(list.length?groups:empty)+'</div>';
   }
   function lmSetParkFilter(v){ LM.parkFilter=v; render(); }
+  /* ── Cross-sell: leads interested in a crop their SOURCE CAMPAIGN wasn't selling ──
+     wanted = product_interest ∪ park_products (minus 'Other'); a lead is cross-sell when it has a
+     wanted crop NOT in its campaign's products[]. Read-only over crm_leads_list — no DB change. */
+  function lmWantedProducts(l){ var s={}; (l.products||[]).forEach(function(p){ if(p&&p!=='—'&&p!=='Other') s[p]=1; }); (l.parkProducts||[]).forEach(function(p){ if(p&&p!=='Other') s[p]=1; }); return Object.keys(s); }
+  function lmCrossSell(l){
+    if(lmIsReturned(l)) return null;
+    var camp=l.campaignProducts||[]; if(!camp.length) return null;           /* need a campaign crop to compare against */
+    var wanted=lmWantedProducts(l); if(!wanted.length) return null;
+    var extra=wanted.filter(function(p){ return camp.indexOf(p)<0; });        /* crops they want that the campaign wasn't selling */
+    return extra.length?{extra:extra,wanted:wanted,camp:camp}:null;
+  }
+  function lmSetXs(k,v){ LM[k]=v; render(); }
+  function lmToggleXsParked(){ LM.xsParked=!LM.xsParked; render(); }
+  function paneCrossSell(){
+    if(!LM.loaded){ lmEnsure(); return lmSkel(); }
+    var base=lmScope(LM.rows).map(function(l){ var x=lmCrossSell(l); return x?{l:l,x:x}:null; }).filter(Boolean);
+    if(!LM.xsParked) base=base.filter(function(o){ return !lmIsParked(o.l); });
+    /* KPI + option universes (before the from/wants filters, so dropdowns stay stable) */
+    var srcCount={}, wantCount={};
+    base.forEach(function(o){ o.x.camp.forEach(function(p){ srcCount[p]=(srcCount[p]||0)+1; }); o.x.extra.forEach(function(p){ wantCount[p]=(wantCount[p]||0)+1; }); });
+    var topWant=Object.keys(wantCount).sort(function(a,b){return wantCount[b]-wantCount[a];})[0];
+    var topSrc=Object.keys(srcCount).sort(function(a,b){return srcCount[b]-srcCount[a];})[0];
+    /* apply filters */
+    var shown=base.filter(function(o){
+      if(LM.xsFrom!=='all' && o.x.camp.indexOf(LM.xsFrom)<0) return false;
+      if(LM.xsWants!=='all' && o.x.extra.indexOf(LM.xsWants)<0) return false;
+      return true;
+    });
+    /* group by the wanted (extra) crop, honouring the wants filter */
+    var byWant={}, order=[];
+    shown.forEach(function(o){ o.x.extra.forEach(function(p){ if(LM.xsWants!=='all'&&p!==LM.xsWants) return; if(!byWant[p]){ byWant[p]=[]; order.push(p); } byWant[p].push(o); }); });
+    order.sort(function(a,b){ return (byWant[b].length-byWant[a].length)||a.localeCompare(b); });
+    var kpis=kcard('Cross-sell leads',String(base.length),'interest ≠ campaign crop')
+      +kcard('Top opportunity',topWant||'—',topWant?wantCount[topWant]+' lead(s) want it':'nothing yet')
+      +kcard('Biggest source',topSrc||'—',topSrc?srcCount[topSrc]+' cross lead(s)':'—');
+    var opts=function(cur,map){ return '<option value="all">'+(cur==='from'?'Any — all campaigns':'Any other crop')+'</option>'+Object.keys(map).sort().map(function(p){ var sel=(cur==='from'?LM.xsFrom:LM.xsWants); return '<option value="'+esc(p)+'"'+(sel===p?' selected':'')+'>'+esc(p)+'</option>'; }).join(''); };
+    var ctrl='<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+      +'<span class="cell-sub">From campaign crop</span><select class="form-select" style="width:auto" onchange="CRM.lmSetXs(\'xsFrom\',this.value)">'+opts('from',srcCount)+'</select>'
+      +'<span class="cell-sub" style="margin-left:4px">Wants</span><select class="form-select" style="width:auto" onchange="CRM.lmSetXs(\'xsWants\',this.value)">'+opts('wants',wantCount)+'</select>'
+      +'<label style="margin-left:auto;font-size:12px;color:var(--text2);display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox"'+(LM.xsParked?' checked':'')+' style="width:auto;accent-color:var(--accent)" onclick="CRM.lmToggleXsParked()"/> include parked</label></div>';
+    var legend='<div class="xs-legend"><span><span class="badge badge-n">crop</span> campaign sold</span><span><span class="badge xs-want">crop</span> wants — new opportunity</span><span><span class="badge badge-pass">crop</span> also wants the campaign crop</span></div>';
+    var groups=order.map(function(p){
+      var g=byWant[p];
+      var cards=g.map(function(o){
+        var l=o.l, x=o.x;
+        var srcTags=x.camp.map(function(c){ return bdg('badge-n',c); }).join(' ');
+        var wantTags=x.wanted.map(function(w){ return (x.camp.indexOf(w)<0)?'<span class="badge xs-want">'+esc(w)+'</span>':bdg('badge-pass',w); }).join(' ');
+        var parkTag=lmIsParked(l)?'<span class="badge badge-park">Parked'+(l.parkRevisit?' · '+esc(lmMonthLabel(l.parkRevisit)):'')+'</span>':'';
+        var acts='<button class="btn btn-secondary btn-sm" onclick="CRM.lmOpen(\''+l.id+'\')">Open</button>';
+        if(lmIsParked(l)) acts+='<button class="btn btn-primary btn-sm" onclick="CRM.lmReactivate(\''+l.id+'\')">Reactivate</button>';
+        else if(lmIsQualified(l)) acts+='<button class="btn btn-primary btn-sm" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>';
+        return '<div class="inb inb-lead xs-lead"><div class="inb-h"><span class="inb-t">'+esc(l.company)+'</span>'+parkTag+'<span style="margin-left:auto">'+lmStageBadge(l)+'</span></div>'
+          +'<div class="inb-meta xs-flow">from '+(l.campaign?'<span class="tag camp">'+esc(l.campaign)+'</span> ':'')+srcTags+' <span class="xs-arrow">→</span> wants '+wantTags+'</div>'
+          +'<div class="inb-f"><span class="inb-ref"><span class="lot">'+esc(l.ref)+'</span> '+(l.contact?esc(l.contact)+' · ':'')+esc(l.country||'—')+'</span>'
+          +'<span class="gset" style="margin-left:auto;margin-top:0">'+acts+'</span></div></div>';
+      }).join('');
+      return '<div class="inb-rghdr"><span class="rn">'+esc(p)+'</span><span class="line"></span><span class="cnt">'+g.length+' lead(s) · '+esc(p)+' season target list</span></div>'+cards;
+    }).join('');
+    var empty='<div class="empty-state">No cross-sell leads. These appear when a lead is interested in a crop that the campaign which captured them wasn\'t selling — e.g. a Grapes-campaign lead who wants Mango. Tag campaigns with their <b>Selling product(s)</b> so the match can be computed.</div>';
+    return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Cross-sell · '+base.length+' lead(s) interested beyond their source campaign'
+      +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
+      +(base.length?(kpiStrip3(kpis)+ctrl+legend+(shown.length?groups:'<div class="empty-state">No leads match these filters.</div>')):empty)+'</div>';
+  }
+  function kpiStrip3(cards){ return '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">'+cards+'</div>'; }
   function fnRow(label,pct,val,pctTxt,fillColor){
     return '<div class="fn-row"><div class="fn-l">'+esc(label)+'</div><div class="fn-track"><div class="fn-fill" style="width:'+pct+'%'+(fillColor?';background:'+fillColor:'')+'">'+esc(val)+'</div></div><div class="fn-pct">'+esc(pctTxt)+'</div></div>';
   }
@@ -5039,7 +5105,7 @@ window.CRM = (function(){
     lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
@@ -5675,6 +5741,15 @@ function injectCrmCss(){
 .crmv .badge-fail{background:var(--red-bg);border:1px solid var(--red-border);color:var(--red)}
 .crmv .badge-hold{background:#fff3e0;border:1px solid #e8c090;color:#b06010}
 .crmv .badge-park{background:var(--teal-bg,#d7f0ec);border:1px solid #b8e0d9;color:var(--teal,#0f766e)}
+/* small metadata chip (parked "last owner", cross-sell "from campaign") */
+.crmv .tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--card);color:var(--text2);border:1px solid var(--border2);white-space:nowrap}
+.crmv .tag.camp{background:var(--card);color:var(--text2)}
+/* cross-sell view */
+.crmv .badge.xs-want{background:var(--accent-soft,#efeaff);color:var(--accent);border-color:transparent}
+.crmv .xs-flow{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.crmv .xs-arrow{color:var(--border);font-weight:700;margin:0 3px}
+.crmv .xs-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--text3);margin-bottom:12px}
+.crmv .xs-legend .badge{margin-right:3px}
 .crmv .badge-esc{background:#e8eeff;border:1px solid #a0b4e8;color:#2a50c0}
 .crmv .badge-sa{background:#f0e8ff;border:1px solid #c090e0;color:#6a10b0}
 .crmv .badge-sr{background:#fff0e8;border:1px solid #e0b090;color:#b04010}
