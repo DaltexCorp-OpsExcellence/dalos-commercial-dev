@@ -4545,7 +4545,7 @@ window.CRM = (function(){
   }
 
   /* ═══════════════════ CAMPAIGNS destination (REAL — crm_campaigns) ═══════════════════ */
-  var FORM_HOST=(/-dev|localhost|127\.0\.0\.1/.test(location.host+location.pathname)?'https://daltexcorp-opsexcellence.github.io/daltex-lead-form-dev/':'https://daltexcorp-opsexcellence.github.io/daltex-lead-form/');   /* public capture form: -dev on staging, prod form on prod — resolved by host so promote is a clean copy */
+  var FORM_HOST=(/-dev|localhost|127\.0\.0\.1/.test(location.host+location.pathname)?'https://daltexcorp-opsexcellence.github.io/daltex-lead-form-dev/':'https://daloshq.com/daltex-lead-form/');   /* public capture form: -dev on staging, prod form on prod — resolved by host so promote is a clean copy */
   var CAMP={items:[],loaded:false,loading:false,logoData:null,media:[],editId:null,qrToken:null,products:{}};
   function campLocalToday(tz){ try{ return new Date().toLocaleDateString('en-CA',{timeZone:tz||'UTC'}); }catch(e){ return new Date().toISOString().slice(0,10); } }
   var CAMP_TYPES=[['exhibition','Exhibition'],['digital','Digital'],['research','Research'],['referral','Referral'],['other','Other']];
