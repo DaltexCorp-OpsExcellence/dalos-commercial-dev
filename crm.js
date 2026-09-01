@@ -2380,8 +2380,17 @@ window.CRM = (function(){
   }
 
   function attachListeners(){
-    var d=$('dlv'); if(d) d.addEventListener('click',function(e){ if(e.target===d) closeDlv(); });
-    [].forEach.call(ROOT.querySelectorAll('.modal-bg'),function(m){ m.addEventListener('click',function(e){ if(e.target===m) requestCloseModal(m.id); }); });
+    /* Close a drawer/modal on backdrop click, but ONLY when the press STARTED on the
+       backdrop. Otherwise a text-selection drag that begins inside a field and releases
+       outside the panel makes the click target the backdrop, wrongly closing the view. */
+    function bgClose(el,onClose){
+      if(!el) return;
+      var pressedOnBg=false;
+      el.addEventListener('pointerdown',function(e){ pressedOnBg=(e.target===el); });
+      el.addEventListener('click',function(e){ if(e.target===el && pressedOnBg) onClose(); });
+    }
+    bgClose($('dlv'),function(){ closeDlv(); });
+    [].forEach.call(ROOT.querySelectorAll('.modal-bg'),function(m){ bgClose(m,function(){ requestCloseModal(m.id); }); });
     /* mark guarded modals dirty on any field edit so closing them prompts before discarding (P0-1) */
     function _markDirty(e){ var m=e.target&&e.target.closest&&e.target.closest('.modal-bg'); if(m&&GUARDED_MODALS[m.id]) _formDirty[m.id]=true; }
     ROOT.addEventListener('input',_markDirty);
