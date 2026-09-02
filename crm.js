@@ -3975,8 +3975,21 @@ window.CRM = (function(){
       capClear(); capSync(); capRenderList(); capRenderHead(); var c=$('cap_company'); if(c) c.focus(); }).catch(function(){ toast('Could not save capture on the device.'); });
   }
   function capEditLoad(uuid){
-    var r=null; for(var i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; break; } }
-    if(!r) return; var rp=r.raw_payload||{};
+    var r=null,i; for(i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; break; } }
+    if(!r){
+      /* A teammate's / previously-synced capture — lives only in the campaign roster, not on this
+         device. Editing others' leads is gated to manageLeads (RLS: crm_leads_upd allows admin/
+         commercial/marketing to UPDATE any row). Materialize a SYNCED local copy so capSave's edit
+         branch finds it and marks it _dirty → capSyncDirty pushes a cloud UPDATE (keyed on
+         client_uuid). Photos stay as their stored paths (untouched unless the editor replaces one). */
+      if(!canManageLeads()){ toast('<b>Not permitted</b> · editing another rep’s lead is restricted to Marketing/Commercial'); return; }
+      var cr=null; for(i=0;i<(CAP.campaignRows||[]).length;i++){ if(CAP.campaignRows[i].client_uuid===uuid){ cr=CAP.campaignRows[i]; break; } }
+      if(!cr) return;
+      r={}; for(var kk in cr){ r[kk]=cr[kk]; }
+      r._synced=true; r._dirty=false; r._card_data=null; r._group_data=null;
+      CAP.items.unshift(r);   /* memory only — persisted by capPut on Update; deduped from the roster by client_uuid */
+    }
+    var rp=r.raw_payload||{};
     CAP.editingId=uuid; capSource=r.source||'manual';
     CAP.chips={}; (r.product_interest||[]).forEach(function(p){ CAP.chips[p]=true; });
     CAP.exporters={}; (rp.exporter_type?String(rp.exporter_type).split(/,\s*/):[]).forEach(function(v){ if(v) CAP.exporters[v]=true; });
@@ -4138,7 +4151,7 @@ window.CRM = (function(){
       +row('Follow-up actions', fu)
       +row('Follow-up · other', rp.followup_other)
       +row('Notes', r.notes)
-      +'<div class="l-formact" style="margin-top:14px">'+(own?'<button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button><button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button>':'')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
+      +'<div class="l-formact" style="margin-top:14px">'+((own||canManageLeads())?'<button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button>':'')+(own?'<button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button>':'')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
       +'</div>';
     showDlv('Captured lead', body);
     /* synced-but-not-local (e.g. reopened later): fetch a signed URL for the stored photo */
