@@ -4116,6 +4116,9 @@ window.CRM = (function(){
     return '<div class="cap-tally"><span class="cap-tally-n">'+today+'</span><span class="cap-tally-l">captured today'+(sess>today?' <span class="cell-sub">· '+sess+' on device</span>':'')+'</span></div>';
   }
   function capRenderTally(){ var el=$('cap_tally'); if(el) el.innerHTML=capTallyHtml(); }
+  /* total captures in the selected campaign (whole team, deduped) — badge above the list */
+  function capTotalHtml(){ var n=capMergedRows().length; return '<span class="cap-total-n">'+n+'</span><span class="cap-total-l">'+(n===1?'lead':'leads')+'</span>'; }
+  function capRenderTotal(){ var el=$('cap_total'); if(el) el.innerHTML=capTotalHtml(); }
   function capHeadHtml(){
     var opts=CAP.campaigns.length ? CAP.campaigns.map(function(c){ return '<option value="'+esc(c.id)+'"'+(c.id===CAP.campaignId?' selected':'')+'>'+esc(c.name)+'</option>'; }).join('') : '<option value="">No active campaign yet</option>';
     var sel=null; for(var i=0;i<CAP.campaigns.length;i++){ if(CAP.campaigns[i].id===CAP.campaignId){ sel=CAP.campaigns[i]; break; } }
@@ -4244,7 +4247,7 @@ window.CRM = (function(){
     }
   }
   function capRenderHead(){ var el=$('cap_head'); if(el) el.innerHTML=capHeadHtml(); capRenderTally(); }
-  function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); capRenderTally(); }
+  function capRenderList(){ var el=$('cap_list'); if(el) el.innerHTML=capListHtml(); capRenderTally(); capRenderTotal(); }
 
   function capFld(id,label,ph,type,extra){ return '<div class="fg"><label class="form-label">'+esc(label)+'</label><input class="form-input" id="cap_'+id+'"'+(type?' type="'+type+'"':'')+(ph?' placeholder="'+esc(ph)+'"':'')+' autocomplete="off"'+(extra||'')+' oninput="CRM.capUnmark(this)"/></div>'; }
   /* conversation-stage header for the show-mode form */
@@ -4415,7 +4418,7 @@ window.CRM = (function(){
       +'<div class="gset cap-actions" style="align-items:center"><button class="btn btn-primary" id="cap_savebtn" style="flex:1" onclick="CRM.capSave()">'+(CAP.editingId?'Update lead':'Save &amp; capture next')+'</button><button class="btn btn-secondary" onclick="'+(CAP.editingId?'CRM.capCancelEdit()':'CRM.capClear()')+'">'+(CAP.editingId?'Cancel edit':'Clear')+'</button></div>'
       +'</div>';
     var list='<div class="card">'
-      +'<div class="section-title"><span class="section-title-bar"></span> Campaign captures <span class="link-btn" style="margin-left:auto" onclick="CRM.capExport()">Export CSV ↓</span></div>'
+      +'<div class="section-title"><span class="section-title-bar"></span> Campaign captures <span id="cap_total" class="cap-total">'+capTotalHtml()+'</span> <span class="link-btn" style="margin-left:auto" onclick="CRM.capExport()">Export CSV ↓</span></div>'
       +'<div id="cap_list">'+capListHtml()+'</div></div>';
     var datalist='<datalist id="cap_countries">'+['United Kingdom','Germany','Netherlands','France','Belgium','Spain','Italy','Poland','UAE','Saudi Arabia','Qatar','Kuwait','Russia','Turkey','China','India'].map(function(c){return '<option value="'+esc(c)+'"></option>';}).join('')+'</datalist>';
     return '<div class="grid2" style="align-items:start">'+form+list+'</div>'+datalist+capScanOverlay()+capNotesOverlay();
@@ -6112,6 +6115,9 @@ function injectCrmCss(){
 .crmv .cap-hstat .cap-tally-n{font-family:var(--font-display);font-size:23px;color:var(--accent);line-height:1}
 .crmv .cap-hstat .cap-tally-l{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2)}
 .crmv .cap-hstat .cell-sub{display:none}
+.crmv .cap-total{display:inline-flex;align-items:baseline;gap:5px;padding:2px 10px;border-radius:20px;background:color-mix(in srgb,var(--accent) 12%,#fff);border:1px solid color-mix(in srgb,var(--accent) 26%,var(--border2))}
+.crmv .cap-total-n{font-family:var(--font-display);font-weight:700;font-size:14px;color:var(--accent);line-height:1}
+.crmv .cap-total-l{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2)}
 /* Add-to-Home pill in the context row */
 .crmv .cap-home{font-size:11px;color:var(--text2);border:1px solid var(--border2);border-radius:999px;padding:5px 11px;background:transparent;cursor:pointer;font-family:var(--font-body)}
 .crmv .cap-home:hover{border-color:var(--accent);color:var(--accent)}
