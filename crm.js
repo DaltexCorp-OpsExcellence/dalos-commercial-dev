@@ -3504,7 +3504,7 @@ window.CRM = (function(){
   }
 
   /* ═══════════════════ SHOW MODE — real capture (offline-safe, writes crm_leads) ═══════════════════ */
-  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporters:{},importers:{},signals:{},scanned:{},bullets:false,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null,flyerData:null,cardDirty:false,groupDirty:false,flyerDirty:false,editingId:null,campaignRows:[],hidden:{},_rosterSig:''};
+  var CAP={campaigns:[],campaignId:null,items:[],loaded:false,syncing:false,online:(typeof navigator!=='undefined'?navigator.onLine:true),_timer:null,chips:{},exporters:{},importers:{},signals:{},scanned:{},bullets:true,moreOpen:false,followups:{},notesOverlay:false,cardData:null,groupData:null,flyerData:null,cardDirty:false,groupDirty:false,flyerDirty:false,editingId:null,campaignRows:[],hidden:{},_rosterSig:''};
   var CAP_PRODUCTS=['Potatoes','Citrus','Grapes','Onions','Spring Onions','Pomegranate','Field Crops','Mango','Carrots','Sweet Potato','Pumpkin','Peanuts','Other'];
   var CAP_EXP=['Grower','Trader','Association','Other'];
   var CAP_IMP=['Agent','Retailer','Wholesaler','Other'];
@@ -3981,7 +3981,7 @@ window.CRM = (function(){
     var fields={ company_name:company, contact_name:capField('contact')||null, contact_role:capField('role')||null,
       email:capField('email')||null, phone:capField('phone')||null, website:capField('website')||null,
       country:capField('country')||null, address:capField('address')||null,
-      product_interest:(products.length?products:null), notes:capField('notes')||null, raw_payload:rp };
+      product_interest:(products.length?products:null), notes:capNotesClean(capField('notes'))||null, raw_payload:rp };
     /* ── EDIT existing capture ── */
     if(CAP.editingId){
       var ex=null; for(var i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===CAP.editingId){ ex=CAP.items[i]; break; } }
@@ -4261,7 +4261,7 @@ window.CRM = (function(){
              v('email')||v('phone')||v('website')||v('address'),
              v('products_industries')||v('trade_countries'),
              any(CAP.chips)||v('annual_quantity'),
-             any(CAP.signals)||v('notes'),
+             any(CAP.signals)||!!capNotesClean(($('cap_notes')||{}).value||''),
              any(CAP.followups) ];
   }
   function capUpdateProgress(){
@@ -4302,7 +4302,14 @@ window.CRM = (function(){
   function capNotesMirror(from){ var a=$('cap_notes'),b=$('cap_notes_big'); if(a&&b){ if(from==='big') a.value=b.value; else b.value=a.value; } capUpdateProgress(); }
   function capActiveMirror(){ capNotesMirror(CAP.notesOverlay?'big':'inline'); }
   function capQuickTag(btn){ var t=btn.getAttribute('data-tag'); var ta=capActiveNotes(); if(!ta) return; var v=ta.value.replace(/\s+$/,''); ta.value=(v?v+'\n':'')+'• '+t+'\n'; ta.focus(); ta.selectionStart=ta.selectionEnd=ta.value.length; capActiveMirror(); }
-  function capBulletsToggle(){ CAP.bullets=!CAP.bullets; ['cap_bt','cap_bt_big'].forEach(function(id){ var el=$(id); if(el){ if(CAP.bullets) el.setAttribute('data-on','1'); else el.removeAttribute('data-on'); el.classList.toggle('on',CAP.bullets); } }); var ta=capActiveNotes(); if(ta){ if(CAP.bullets && !ta.value.trim()){ ta.value='• '; capActiveMirror(); } ta.focus(); ta.selectionStart=ta.selectionEnd=ta.value.length; } }
+  /* strip empty/lone bullet markers so a seeded "• " never saves or counts as filled;
+     keeps real bulleted lines (with text) intact */
+  function capNotesClean(v){ if(v==null) return ''; return String(v).split(/\r?\n/).filter(function(l){ return l.replace(/^\s*•\s*/,'').trim()!==''; }).join('\n').trim(); }
+  /* Bullets is ON by default: seed the first "• " when the rep taps into an empty notes field,
+     and drop it again if they leave without writing anything. */
+  function capNotesSeed(el){ if(CAP.bullets && el && !el.value.trim()){ el.value='• '; el.selectionStart=el.selectionEnd=el.value.length; capActiveMirror&&capActiveMirror(); } }
+  function capNotesBlur(el){ if(el && !capNotesClean(el.value)){ el.value=''; capActiveMirror&&capActiveMirror(); } }
+  function capBulletsToggle(){ CAP.bullets=!CAP.bullets; ['cap_bt','cap_bt_big'].forEach(function(id){ var el=$(id); if(el){ if(CAP.bullets) el.setAttribute('data-on','1'); else el.removeAttribute('data-on'); el.classList.toggle('on',CAP.bullets); } }); var ta=capActiveNotes(); if(ta){ if(CAP.bullets && !ta.value.trim()){ ta.value='• '; capActiveMirror(); } else if(!CAP.bullets && !capNotesClean(ta.value)){ ta.value=''; capActiveMirror(); } ta.focus(); ta.selectionStart=ta.selectionEnd=ta.value.length; } }
   function capNotesKey(e){ if(CAP.bullets && e.key==='Enter' && !e.shiftKey){ e.preventDefault(); var ta=e.target, p=ta.selectionStart, val=ta.value; ta.value=val.slice(0,p)+'\n• '+val.slice(p); var np=p+3; ta.selectionStart=ta.selectionEnd=np; capActiveMirror(); } }
   function capNotesExpand(){ var a=$('cap_notes'),b=$('cap_notes_big'); if(a&&b) b.value=a.value; CAP.notesOverlay=true; var ov=$('capNotesOv'); if(ov) ov.classList.add('open'); if(b){ b.focus(); b.selectionStart=b.selectionEnd=b.value.length; } }
   function capNotesClose(){ var a=$('cap_notes'),b=$('cap_notes_big'); if(a&&b) a.value=b.value; CAP.notesOverlay=false; var ov=$('capNotesOv'); if(ov) ov.classList.remove('open'); }
@@ -4311,7 +4318,7 @@ window.CRM = (function(){
       +'<div class="cap-notes-ovhead"><span class="cap-notes-ovt">Notes from the stand</span>'
       +'<button type="button" class="cap-bt" id="cap_bt_big"'+(CAP.bullets?' data-on="1"':'')+' onclick="CRM.capBulletsToggle()">• Bullets</button>'
       +'<button type="button" class="btn btn-primary btn-sm" style="margin-left:auto" onclick="CRM.capNotesClose()">Done</button></div>'
-      +'<textarea class="form-input cap-notes-bigta" id="cap_notes_big" placeholder="Write freely while you talk — or use the keyboard mic to dictate…" oninput="CRM.capNotesMirror(\'big\')" onkeydown="CRM.capNotesKey(event)"></textarea>'
+      +'<textarea class="form-input cap-notes-bigta" id="cap_notes_big" placeholder="Write freely while you talk — or use the keyboard mic to dictate…" oninput="CRM.capNotesMirror(\'big\')" onkeydown="CRM.capNotesKey(event)" onfocus="CRM.capNotesSeed(this)" onblur="CRM.capNotesBlur(this)"></textarea>'
       +'<div class="hint" style="margin-top:6px">Tap <b>Done</b> to return to the form. Your notes are saved with the lead.</div>'
       +'</div></div>';
   }
@@ -4409,7 +4416,7 @@ window.CRM = (function(){
       +'<div class="fg"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label class="form-label" style="margin:0">Notes</label>'
         +'<button type="button" class="cap-bt" id="cap_bt"'+(CAP.bullets?' data-on="1"':'')+' onclick="CRM.capBulletsToggle()">• Bullets</button>'
         +'<button type="button" class="cap-bt" style="margin-left:auto" onclick="CRM.capNotesExpand()">⤢ Expand</button></div>'
-        +'<textarea class="form-input" id="cap_notes" rows="4" placeholder="buys 40 cont. from Peru, wants wk 8–14…" oninput="CRM.capNotesMirror(\'inline\')" onkeydown="CRM.capNotesKey(event)"></textarea>'
+        +'<textarea class="form-input" id="cap_notes" rows="4" placeholder="buys 40 cont. from Peru, wants wk 8–14…" oninput="CRM.capNotesMirror(\'inline\')" onkeydown="CRM.capNotesKey(event)" onfocus="CRM.capNotesSeed(this)" onblur="CRM.capNotesBlur(this)"></textarea>'
         +'<div class="hint" style="margin-top:4px">Tip: tap <b>⤢ Expand</b> for a full-screen pad, or use your keyboard mic to dictate.</div></div>'
       /* ⑥ follow-up */
       +capStage('6','Follow-up actions','what we owe this lead')
@@ -5221,7 +5228,7 @@ window.CRM = (function(){
     leadSelSync2:leadSelSync2, leadSelAll2:leadSelAll2, leadSelClear2:leadSelClear2, leadReturnAct:gs(leadReturnAct),
     capSave:gm(capSave), capClear:capClear, capSetCampaign:capSetCampaign, capExport:capExport,
     capScan:capScan, capScanCancel:capScanStop, capOcrPick:capOcrPick,
-    capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capMore:capMore,
+    capToggleProd:capToggleProd, capType:capType, capQuickTag:capQuickTag, capBulletsToggle:capBulletsToggle, capNotesKey:capNotesKey, capNotesSeed:capNotesSeed, capNotesBlur:capNotesBlur, capMore:capMore,
     capToggleFollowup:capToggleFollowup, capNotesExpand:capNotesExpand, capNotesClose:capNotesClose, capNotesMirror:capNotesMirror, capOpenDetail:capOpenDetail,
     capAddToHome:capAddToHome, capCopyHomeUrl:capCopyHomeUrl, capDoInstall:capDoInstall, capRemovePhoto:capRemovePhoto,
     capGroupPick:capGroupPick, capRemoveGroup:capRemoveGroup, capFlyerPick:capFlyerPick, capRemoveFlyer:capRemoveFlyer, capSignal:capSignal, capUnmark:capUnmark, capEditLoad:capEditLoad, capDelete:capDelete, capCancelEdit:capCancelEdit, captureDirty:capDirty,
