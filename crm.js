@@ -4099,8 +4099,13 @@ window.CRM = (function(){
   }
   function capOpenDetail(uuid){
     var r=null,i,own=false; for(i=0;i<CAP.items.length;i++){ if(CAP.items[i].client_uuid===uuid){ r=CAP.items[i]; own=true; break; } }
-    if(!r){ for(i=0;i<(CAP.campaignRows||[]).length;i++){ if(CAP.campaignRows[i].client_uuid===uuid){ r=CAP.campaignRows[i]; break; } } }   /* a teammate's capture — read-only */
+    if(!r){ for(i=0;i<(CAP.campaignRows||[]).length;i++){ if(CAP.campaignRows[i].client_uuid===uuid){ r=CAP.campaignRows[i]; break; } } }   /* a teammate's capture — editable by managers */
     if(!r) return;
+    /* Delete removes only the viewer's OWN capture (device copy). A fresh local capture has no
+       captured_by yet (set on sync); a teammate's row carries someone else's id. Keying off this
+       (not device-membership) keeps Delete hidden on teammate rows even after a manager edits one
+       — editing materializes a device copy, which must not turn Delete on for a lead they don't own. */
+    var mine=(!r.captured_by)||(USER&&r.captured_by===USER.id);
     var rp=r.raw_payload||{};
     var row=function(k,v){ if(v==null||v===''||(Array.isArray(v)&&!v.length)) return ''; if(Array.isArray(v)) v=v.join(', ');
       return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="flex:0 0 132px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;padding-top:1px">'+esc(k)+'</div><div style="flex:1;font-size:13px;color:var(--text);word-break:break-word;white-space:pre-wrap;line-height:1.45">'+esc(v)+'</div></div>'; };
@@ -4151,7 +4156,7 @@ window.CRM = (function(){
       +row('Follow-up actions', fu)
       +row('Follow-up · other', rp.followup_other)
       +row('Notes', r.notes)
-      +'<div class="l-formact" style="margin-top:14px">'+((own||canManageLeads())?'<button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button>':'')+(own?'<button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button>':'')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
+      +'<div class="l-formact" style="margin-top:14px">'+((own||canManageLeads())?'<button class="btn btn-secondary" onclick="CRM.capEditLoad(\''+esc(r.client_uuid)+'\')">Edit</button>':'')+((own&&mine)?'<button class="btn btn-secondary" style="color:var(--red)" onclick="CRM.capDelete(\''+esc(r.client_uuid)+'\')">Delete</button>':'')+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Close</button></div>'
       +'</div>';
     showDlv('Captured lead', body);
     /* synced-but-not-local (e.g. reopened later): fetch a signed URL for the stored photo */
