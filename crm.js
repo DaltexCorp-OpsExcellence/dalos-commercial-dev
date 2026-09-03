@@ -2897,6 +2897,12 @@ window.CRM = (function(){
   function lmNewFlyerPick(input){ lmnPickImg(input,function(d){ LMN.flyerData=d; lmNewFlyerChip(); }); }
   function lmNewGroupRemove(){ LMN.groupData=null; lmNewGroupChip(); var fi=$('lmn_group'); if(fi) fi.value=''; }
   function lmNewFlyerRemove(){ LMN.flyerData=null; lmNewFlyerChip(); var fi=$('lmn_flyer'); if(fi) fi.value=''; }
+  /* campaign / source picker — always shown; loads campaigns on demand (they aren't fetched until the Campaigns tab opens) */
+  function lmnCampOptions(){
+    if(!CAMP.loaded && !(CAMP.items&&CAMP.items.length)) return '<option value="">Loading campaigns…</option>';
+    var camps=(CAMP.items||[]).filter(function(c){return c.active;});
+    return '<option value="">— none · manual / walk-in —</option>'+camps.map(function(c){ return '<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>'; }).join('');
+  }
   function lmNewProdChips(){ return lmnProducts().map(function(p){ return '<button type="button" class="capchip'+(LMN.products[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.lmNewChip(this)">'+esc(p)+'</button>'; }).join(''); }
   function lmNewChip(btn){ var p=btn.getAttribute('data-prod'); LMN.products[p]=!LMN.products[p]; btn.classList.toggle('on',!!LMN.products[p]); lmnRenderCats(); }
   function lmNewCardChip(){ var el=$('lmn_card_chip'); if(!el) return;
@@ -2908,12 +2914,12 @@ window.CRM = (function(){
   function lmNewOpen(){
     if(!canManageLeads()){ toast('<b>Not permitted</b> · you can’t create leads'); return; }
     LMN={products:{},imp:{},exp:{},crops:{},cats:{},contacts:[{name:'',role:'',phones:[''],emails:['']}],cardData:null,groupData:null,flyerData:null,force:false};
-    var camps=(CAMP.items||[]).filter(function(c){return c.active;});
     var lbl=function(t,m){ return '<label class="form-label" style="margin-top:10px">'+t+(m?' <span class="lmuted" style="font-weight:500;color:var(--text3)">· '+m+'</span>':'')+'</label>'; };
     var fileRow=function(id,label,pick,cap){ return '<label class="form-label" style="margin-top:10px">'+label+'</label><input type="file" accept="image/*"'+(cap?' capture="environment"':'')+' id="'+id+'" onchange="CRM.'+pick+'(this)" class="form-input"/><div id="'+id+'_chip"></div>'; };
     var body='<div class="l-form"><div class="l-formnote">Create a lead directly (source: manual). Company is required — everything else can be enriched later. Fields mirror Show Mode so a stand capture and a manual lead carry the same data.</div>'
       +field('lmn_company','Company','','e.g. Meridian Fresh Ltd')
       +'<div class="grid2" style="gap:8px">'+field('lmn_country','Country','','')+field('lmn_website','Website','','')+'</div>'
+      +lbl('Campaign / source','which event or campaign this lead came from')+'<select class="form-select" id="lmn_campaign">'+lmnCampOptions()+'</select>'
       +lbl('Contacts','each with their own phone(s) &amp; email(s)')
       +'<div id="lmn_contacts">'+lmnContactsHtml()+'</div>'
       +lbl('Importer type','all that apply')+'<div class="opt-tiles" id="lmn_imp">'+lmnTypeTiles('imp')+'</div>'
@@ -2926,7 +2932,6 @@ window.CRM = (function(){
       +lbl('Category','optional, per product')+'<div id="lmn_cats"></div>'
       +'<div class="grid2" style="gap:8px">'+field('lmn_port','Destination port','','e.g. Jebel Ali')+field('lmn_band','Volume band','','e.g. 1–5 containers')+'</div>'
       +field('lmn_season','Season window','','e.g. wk 40–48')
-      +(camps.length?selField('lmn_campaign','Campaign (optional)',[['','— none —']].concat(camps.map(function(c){return [c.id,c.name];})),''):'')
       +fileRow('lmn_card','Business card / badge photo','lmNewCardPick',1)
       +fileRow('lmn_group','Group photo with the lead','lmNewGroupPick',1)
       +fileRow('lmn_flyer','Flyer / document','lmNewFlyerPick',0)
@@ -2940,6 +2945,7 @@ window.CRM = (function(){
       +'<div id="lmn_warn"></div>'
       +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.lmNewSave()">Register lead</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
     showDlv('New lead',body); lmNewCardChip(); lmNewGroupChip(); lmNewFlyerChip(); lmnRenderCats();
+    if(!CAMP.loaded){ campLoad(function(){ var s=$('lmn_campaign'); if(s) s.innerHTML=lmnCampOptions(); }); }
   }
   function lmNewForce(){ LMN.force=true; lmNewSave(); }
   function lmNewSave(){
@@ -4747,14 +4753,15 @@ window.CRM = (function(){
   var CAMP_TZ=[['Africa/Cairo','Cairo · Egypt (GMT+2)'],['UTC','UTC (GMT+0)'],['Europe/London','London (GMT+0/1)'],['Europe/Berlin','Berlin · Amsterdam · Paris · Madrid (GMT+1/2)'],['Europe/Athens','Athens · Istanbul (GMT+3)'],['Europe/Moscow','Moscow (GMT+3)'],['Asia/Dubai','Dubai · Abu Dhabi (GMT+4)'],['Asia/Karachi','Karachi (GMT+5)'],['Asia/Kolkata','India (GMT+5:30)'],['Asia/Bangkok','Bangkok · Jakarta (GMT+7)'],['Asia/Singapore','Singapore · Kuala Lumpur (GMT+8)'],['Asia/Hong_Kong','Hong Kong (GMT+8)'],['Asia/Shanghai','China (GMT+8)'],['Asia/Tokyo','Tokyo · Seoul (GMT+9)'],['Australia/Sydney','Sydney (GMT+10/11)'],['America/Sao_Paulo','São Paulo (GMT-3)'],['America/New_York','New York · Toronto (GMT-5/4)'],['America/Chicago','Chicago (GMT-6/5)'],['America/Los_Angeles','Los Angeles (GMT-8/7)']];
   function campCurSym(c){ return c==='USD'?'$':(c==='GBP'?'£':'€'); }
   function campLink(tok){ return FORM_HOST+'?c='+encodeURIComponent(tok||''); }
-  function campLoad(){
-    if(!SB){ CAMP.loaded=true; renderCampaigns(); return; }
+  function campLoad(cb){
+    if(!SB){ CAMP.loaded=true; renderCampaigns(); if(typeof cb==='function') cb(); return; }
     CAMP.loading=true;
     SB.rpc('crm_campaigns_with_stats').then(function(res){
       CAMP.loading=false; CAMP.loaded=true;
       if(res&&!res.error) CAMP.items=res.data||[];
       if(currentTab==='campaigns') renderCampaigns();
-    }).catch(function(){ CAMP.loading=false; CAMP.loaded=true; if(currentTab==='campaigns') renderCampaigns(); });
+      if(typeof cb==='function') cb();
+    }).catch(function(){ CAMP.loading=false; CAMP.loaded=true; if(currentTab==='campaigns') renderCampaigns(); if(typeof cb==='function') cb(); });
   }
   function campReload(){ CAMP.loaded=false; campLoad(); }
   function campRefresh(btn){ if(btn){ btn.disabled=true; btn.textContent='↻ Refreshing…'; } campReload(); }
