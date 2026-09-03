@@ -4143,13 +4143,18 @@ window.CRM = (function(){
       +'<div class="table-wrap"><table><thead><tr><th>Time</th><th>Company</th><th>By</th><th>Contact</th><th class="right">Sync</th></tr></thead><tbody>'
       +rows.slice(0,500).map(function(r){
         var t=r.captured_at?r.captured_at.slice(11,16):'';
-        var deviceLocal=!r.captured_by;   /* local IndexedDB rows carry no captured_by — they're this rep's own */
-        var mine=(myId && r.captured_by===myId) || deviceLocal;
-        var pending=deviceLocal && !r._synced;
-        var sync=pending?'<span class="badge badge-warn" title="On this device — not uploaded yet">… On device</span>':'<span class="badge badge-pass" title="Saved to the shared lead store">✓ Synced</span>';
+        /* A row is genuinely "on this device / not uploaded" ONLY when it carries the local queue flag
+           _synced===false. Cloud rows — including anonymous public_form leads that legitimately have no
+           captured_by — have no _synced flag, so they are already saved. NEVER infer local/ownership from
+           a null captured_by (that mislabeled public-form leads as "You · On device"). Display-only: this
+           does not change capMergedRows, so no row is hidden or left unsynced. */
+        var onDevice=(r._synced===false);                 /* this rep's own capture, still in the IndexedDB queue */
+        var isLocal=(typeof r._synced!=='undefined');      /* originated on this device (mine, incl. just-synced pre-roster) */
+        var mine=(myId && r.captured_by===myId) || isLocal;
+        var sync=onDevice?'<span class="badge badge-warn" title="On this device — not uploaded yet">… On device</span>':'<span class="badge badge-pass" title="Saved to the shared lead store">✓ Synced</span>';
         var tags=(r.raw_payload&&r.raw_payload.tags)||[];
         var dot=tags.indexOf('🔥 Hot lead')>=0?'<span class="cap-dot hot" title="Hot lead"></span>':(tags.length?'<span class="cap-dot warm" title="'+esc(tags.join(', '))+'"></span>':'');
-        var by=mine?'<span class="cap-you">You</span>':esc(r.captured_by_name||'—');
+        var by=mine?'<span class="cap-you">You</span>':(r.source==='public_form'?'<span class="cell-sub">Public form</span>':esc(r.captured_by_name||'—'));
         return '<tr style="cursor:pointer" onclick="CRM.capOpenDetail(\''+esc(r.client_uuid)+'\')"><td class="mono">'+esc(t)+'</td><td>'+dot+esc(r.company_name||'—')+(r.email?'<div class="cell-sub">'+esc(r.email)+'</div>':'')+'</td><td class="cell-sub">'+by+'</td><td>'+esc(r.contact_name||'—')+(r.contact_role?'<div class="cell-sub">'+esc(r.contact_role)+'</div>':'')+'</td><td class="right">'+sync+'</td></tr>';
       }).join('')+'</tbody></table></div>';
   }
