@@ -5221,49 +5221,123 @@ window.CRM = (function(){
 
   /* ── Bulk import — REAL (paste rows → INSERT crm_leads, source='csv_import') ── */
   var lmImp=null;
+  /* 28-col template — mirrors the + New Lead form (3 contacts, multi-value cells via ';') */
+  var LM_TPL_COLS=['company','country','website','contact_name','contact_role','phones','emails','contact2_name','contact2_role','contact2_phones','contact2_emails','contact3_name','contact3_role','contact3_phones','contact3_emails','importer_type','exporter_type','crop_type','products','categories','address','destination_port','volume_band','season_window','products_industries','trade_countries','annual_quantity','notes'];
+  /* RFC-4180-ish CSV parser: quoted fields, embedded commas/newlines, "" escapes */
+  function lmCsvParse(text){
+    var rows=[], row=[], f='', inq=false, i=0, c; text=String(text||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+    for(; i<text.length; i++){ c=text[i];
+      if(inq){ if(c==='"'){ if(text[i+1]==='"'){ f+='"'; i++; } else inq=false; } else f+=c; }
+      else { if(c==='"') inq=true; else if(c===','){ row.push(f); f=''; } else if(c==='\n'){ row.push(f); rows.push(row); row=[]; f=''; } else f+=c; }
+    }
+    if(f!==''||row.length){ row.push(f); rows.push(row); }
+    return rows;
+  }
+  function lmHdrKey(h){ return String(h||'').trim().toLowerCase().replace(/[\s\-]+/g,'_'); }
+  function lmSplitMulti(v){ return String(v==null?'':v).split(';').map(function(x){return x.trim();}).filter(Boolean); }
+  function lmMatchList(vals,known){ var out=[],unk=[]; vals.forEach(function(v){ var m=known.filter(function(k){return k.toLowerCase()===v.toLowerCase();})[0]; if(m) out.push(m); else unk.push(v); }); return {vals:out,unknown:unk}; }
+  function lmParseCats(v){ var o={}; lmSplitMulti(v).forEach(function(pair){ var idx=pair.indexOf(':'); if(idx>0){ var p=pair.slice(0,idx).trim(), val=pair.slice(idx+1).trim(); if(p&&val) o[p]=val; } }); return o; }
+  function lmBuildContacts(o){ var cs=[];
+    [['contact_name','contact_role','phones','emails'],['contact2_name','contact2_role','contact2_phones','contact2_emails'],['contact3_name','contact3_role','contact3_phones','contact3_emails']].forEach(function(k){
+      var name=(o[k[0]]||'').trim(), role=(o[k[1]]||'').trim(), ph=lmSplitMulti(o[k[2]]), em=lmSplitMulti(o[k[3]]);
+      if(name||role||ph.length||em.length) cs.push({name:name,role:role,phones:ph,emails:em});
+    }); return cs;
+  }
+  /* parse the textarea into header-keyed row objects (requires a header row with a 'company' column) */
+  function lmImpParseRows(){
+    var grid=lmCsvParse(($('li_csv')||{}).value||'').filter(function(r){ return r.some(function(c){return String(c).trim()!=='';}); });
+    if(!grid.length) return {rows:[],hasHeader:false};
+    var header=grid[0].map(lmHdrKey), hasHeader=header.indexOf('company')>=0;
+    if(!hasHeader) return {rows:[],hasHeader:false};
+    return {rows:grid.slice(1).map(function(cells){ var o={}; header.forEach(function(h,idx){ if(h) o[h]=(cells[idx]!=null?cells[idx]:''); }); return o; }), hasHeader:true};
+  }
+  /* one row object → a crm_leads record + the list of unrecognised option values */
+  function lmRecFromRow(o,campId){
+    var imp=lmMatchList(lmSplitMulti(o.importer_type),LMN_IMP), exp=lmMatchList(lmSplitMulti(o.exporter_type),LMN_EXP);
+    var crop=lmMatchList(lmSplitMulti(o.crop_type),LMN_CROPS), prod=lmMatchList(lmSplitMulti(o.products),lmnProducts());
+    var chosen={}; prod.vals.concat(prod.unknown).forEach(function(p){chosen[p.toLowerCase()]=p;});
+    var catsRaw=lmParseCats(o.categories), cats={};
+    Object.keys(catsRaw).forEach(function(kk){ var canon=(lmnProducts().filter(function(p){return p.toLowerCase()===kk.toLowerCase();})[0])||chosen[kk.toLowerCase()]; if(canon) cats[canon]=catsRaw[kk]; });
+    var contacts=lmBuildContacts(o), primary=contacts[0]||{name:'',role:'',phones:[],emails:[]};
+    var extra={}, impAll=imp.vals.concat(imp.unknown), expAll=exp.vals.concat(exp.unknown);
+    if(impAll.length) extra.importer_type=impAll.join(', ');
+    if(expAll.length) extra.exporter_type=expAll.join(', ');
+    if((o.products_industries||'').trim()) extra.products_industries=o.products_industries.trim();
+    if((o.trade_countries||'').trim()) extra.trade_countries=o.trade_countries.trim();
+    if((o.annual_quantity||'').trim()) extra.annual_quantity=o.annual_quantity.trim();
+    var products=prod.vals.concat(prod.unknown), crops=crop.vals.concat(crop.unknown);
+    var rec={ source:'csv_import', status:'captured', stage:0,
+      company_name:(o.company||'').trim(),
+      country:(o.country||'').trim()||null, website:(o.website||'').trim()||null, address:(o.address||'').trim()||null,
+      contact_name:primary.name||null, contact_role:primary.role||null, email:primary.emails[0]||null, phone:primary.phones[0]||null,
+      destination_port:(o.destination_port||'').trim()||null, expected_volume_band:(o.volume_band||'').trim()||null, season_window:(o.season_window||'').trim()||null,
+      product_interest:(products.length?products:null), contacts:(contacts.length?contacts:null),
+      crop_types:(crops.length?crops:null), categories:(Object.keys(cats).length?cats:null),
+      notes:(o.notes||'').trim()||null, campaign_id:campId||null,
+      raw_payload:(Object.keys(extra).length?extra:null) };
+    var unknown=[].concat(imp.unknown.map(function(x){return 'importer: '+x;}),exp.unknown.map(function(x){return 'exporter: '+x;}),crop.unknown.map(function(x){return 'crop: '+x;}),prod.unknown.map(function(x){return 'product: '+x;}));
+    return {rec:rec,unknown:unknown};
+  }
+  function lmCsvCell(v){ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+  function lmTemplateCsv(){
+    var ex1=['Meridian Fresh Ltd','United Kingdom','www.meridian.co.uk','J. Whitfield','Procurement Manager','+44 20 7946 0000; +44 7700 900000','jw@meridian.co.uk','A. Salah','Buyer','+44 161 000 0000','a.salah@meridian.co.uk','','','','','Agent; Web Shop','Grower; Trader','Fresh; Frozen','Citrus; Grapes; Blueberry','Citrus: Lemon; Grapes: Flame Seedless','12 Dock Rd, London, UK','Felixstowe','2-4 containers / week','wk 40-50','Fresh produce import & distribution','UK; Ireland; France','500 containers / season','Met at the stand — keen on citrus'];
+    var ex2=['Nordfrucht GmbH','Germany','','K. Muller','Buyer','+49 40 111 2222','k.mueller@nordfrucht.de','','','','','','','','','Wholesaler','','Fresh','Grapes; Blueberry','Blueberry: Biloxi','','','1-3 containers / week','wk 44-52','','DE; NL','',''];
+    return [LM_TPL_COLS,ex1,ex2].map(function(r){ return r.map(lmCsvCell).join(','); }).join('\r\n')+'\r\n';
+  }
+  function lmImportDownloadTemplate(){
+    try{ var blob=new Blob(['﻿'+lmTemplateCsv()],{type:'text/csv;charset=utf-8;'}), url=URL.createObjectURL(blob), a=document.createElement('a');
+      a.href=url; a.download='dalos-leads-import-template.csv'; document.body.appendChild(a); a.click();
+      setTimeout(function(){ try{document.body.removeChild(a);URL.revokeObjectURL(url);}catch(e){} },120); toast('Template downloaded.');
+    }catch(e){ toast('Could not generate the template.'); }
+  }
+  function lmImportFilePick(input){ var f=input&&input.files&&input.files[0]; if(!f) return; var rd=new FileReader();
+    rd.onload=function(ev){ var t=String(ev.target.result||''); if(t.charCodeAt(0)===0xFEFF) t=t.slice(1); var ta=$('li_csv'); if(ta) ta.value=t; lmImportPre(); };
+    rd.readAsText(f); input.value='';
+  }
   function lmImportOpen(){
     if(!canManageLeads()){ toast('<b>Not permitted</b> · you can’t create leads'); return; }
     lmImp=null;
-    var camps=(CAMP.items||[]).filter(function(c){return c.active;});
-    var body='<div class="l-form"><div class="l-formnote">Paste one lead per line. Columns: <b>Company, Country, Product, Contact, Email, Phone</b> — only Company is required; separate multiple products with “;”. Pre-flight checks for duplicates before importing to the real leads list.</div>'
-      +(camps.length?selField('li_campaign','Campaign (optional)',[['','— none —']].concat(camps.map(function(c){return [c.id,c.name];})),''):'')
-      +'<label class="form-label" style="margin-top:8px">Paste rows / CSV</label><textarea class="form-input" id="li_csv" rows="6" style="font-family:var(--font-mono);font-size:12px" placeholder="Meridian Fresh Ltd, United Kingdom, Grapes, J. Whitfield, jw@meridian.co.uk\nNordfrucht GmbH, Germany, Grapes;Citrus"></textarea>'
+    var body='<div class="l-form"><div class="l-formnote">Download the template, fill in your rows, and upload the file — or paste rows straight in. Every + New Lead field is supported; multi-value cells use “<span class="mono">;</span>” (e.g. <span class="mono">Agent; Web Shop</span>). Only <b>Company</b> is required. Pre-flight checks each row before anything is written.</div>'
+      +'<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:10px">'
+        +'<button type="button" class="btn btn-secondary btn-sm" onclick="CRM.lmImportDownloadTemplate()">⭳ Download template (.csv)</button>'
+        +'<label class="btn btn-secondary btn-sm" style="cursor:pointer;position:relative">⭱ Upload CSV<input type="file" accept=".csv,text/csv" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="CRM.lmImportFilePick(this)"/></label>'
+      +'</div>'
+      +'<label class="form-label" style="margin-top:4px">Campaign / source <span class="lmuted" style="font-weight:500;color:var(--text3)">· applied to every imported row</span></label><select class="form-select" id="li_campaign">'+lmnCampOptions()+'</select>'
+      +'<label class="form-label" style="margin-top:10px">Rows / CSV</label><textarea class="form-input" id="li_csv" rows="7" style="font-family:var(--font-mono);font-size:12px;white-space:pre;overflow:auto" placeholder="Paste rows here, or upload a CSV above. The first row must be the column headers — download the template to get them."></textarea>'
       +'<div id="li_pre"></div>'
       +'<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.lmImportPre()">Pre-flight</button><button class="btn btn-primary" id="li_go" disabled onclick="CRM.lmImportRun()">Import ready rows</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
     showDlv('Bulk import leads',body);
-  }
-  function lmImpParse(){
-    return (($('li_csv')||{}).value||'').split('\n').map(function(x){return x.trim();}).filter(Boolean).map(function(ln){
-      var p=ln.split(',').map(function(x){return x.trim();});
-      return { company:p[0]||'', country:p[1]||'', product:p[2]||'', contact:p[3]||'', email:p[4]||'', phone:p[5]||'' };
-    }).filter(function(r){return r.company;});
+    if(!CAMP.loaded){ campLoad(function(){ var s=$('li_campaign'); if(s) s.innerHTML=lmnCampOptions(); }); }
   }
   function lmImportPre(){
-    var rows=lmImpParse(), ready=[], dup=[], have={}, seen={};
+    var parsed=lmImpParseRows(), pre=$('li_pre'), go=$('li_go');
+    if(!parsed.hasHeader){ if(pre) pre.innerHTML='<div class="alert-fail" style="margin-top:10px"><b>No header row.</b> The first row must be the column names — download the template (it needs a <b>company</b> column), fill your rows under it, then upload.</div>'; if(go) go.disabled=true; lmImp=null; return; }
+    if(!parsed.rows.length){ if(pre) pre.innerHTML='<div class="alert-warn" style="margin-top:10px">Header found, but no data rows below it.</div>'; if(go) go.disabled=true; lmImp=null; return; }
+    var campId=(($('li_campaign')||{}).value||'')||null, have={}, seen={}, ready=[], dup=[], noco=0, unkSet={};
     LM.rows.forEach(function(l){ have[(l.company||'').toLowerCase()]=1; });
-    rows.forEach(function(r){ var k=r.company.toLowerCase(); if(have[k]||seen[k]) dup.push(r); else { seen[k]=1; ready.push(r); } });
-    lmImp={ready:ready,dup:dup};
-    var pre=$('li_pre'); if(pre) pre.innerHTML='<div class="ldp" style="margin-top:10px"><div class="ldp-h">Pre-flight · '+rows.length+' row(s)</div><div style="padding:10px 12px">'
+    parsed.rows.forEach(function(o){ var co=(o.company||'').trim(); if(!co){ noco++; return; }
+      var k=co.toLowerCase(); if(have[k]||seen[k]){ dup.push(co); return; } seen[k]=1;
+      var b=lmRecFromRow(o,campId); ready.push(b.rec); b.unknown.forEach(function(u){ unkSet[u]=1; });
+    });
+    lmImp={ready:ready};
+    var unknowns=Object.keys(unkSet);
+    if(pre) pre.innerHTML='<div class="ldp" style="margin-top:10px"><div class="ldp-h">Pre-flight · '+parsed.rows.length+' row(s)</div><div style="padding:10px 12px">'
       +'<div class="gate"><span class="gate-i gate-ok">✓</span> '+ready.length+' new lead(s) ready to import</div>'
-      +'<div class="gate"><span class="gate-i gate-w">!</span> '+dup.length+' duplicate(s) — already in leads, will be skipped</div></div></div>';
-    var go=$('li_go'); if(go) go.disabled=ready.length===0;
+      +(dup.length?'<div class="gate"><span class="gate-i gate-w">!</span> '+dup.length+' duplicate(s) — already in leads, skipped <span class="cell-sub">('+esc(dup.slice(0,6).join(', '))+(dup.length>6?'…':'')+')</span></div>':'')
+      +(noco?'<div class="gate"><span class="gate-i gate-no">✕</span> '+noco+' row(s) with no company — skipped</div>':'')
+      +(unknowns.length?'<div class="gate"><span class="gate-i gate-w">!</span> '+unknowns.length+' unrecognised value(s) — imported as free text; fix the CSV or tidy in-app: <span class="cell-sub">'+esc(unknowns.slice(0,10).join(' · '))+(unknowns.length>10?' …':'')+'</span></div>':'')
+      +'</div></div>';
+    if(go) go.disabled=ready.length===0;
   }
   function lmImportRun(){
     if(!canManageLeads()){ toast('<b>Not permitted</b>'); return; }
-    if(!lmImp||!lmImp.ready.length){ toast('Run Pre-flight first — nothing ready.'); return; }
+    if(!lmImp||!lmImp.ready||!lmImp.ready.length){ toast('Run Pre-flight first — nothing ready.'); return; }
     if(!SB){ toast('No connection.'); return; }
-    var camp=(($('li_campaign')||{}).value||'')||null;
-    var recs=lmImp.ready.map(function(r){
-      var prods=r.product?r.product.split(';').map(function(x){return x.trim();}).filter(Boolean).map(function(x){ var m=CAP_PRODUCTS.filter(function(p){return p.toLowerCase()===x.toLowerCase();})[0]; return m||x; }):[];
-      return { source:'csv_import', status:'captured', stage:0, company_name:r.company,
-        country:r.country||null, product_interest:(prods.length?prods:null),
-        contact_name:r.contact||null, email:r.email||null, phone:r.phone||null, campaign_id:camp };
-    });
-    var btn=$('li_go'); if(btn){ btn.disabled=true; btn.textContent='Importing…'; }
+    var recs=lmImp.ready, btn=$('li_go'); if(btn){ btn.disabled=true; btn.textContent='Importing…'; }
     SB.from('crm_leads').insert(recs).select('id').then(function(res){
-      if(res&&res.error){ var pre=$('li_pre'); if(pre) pre.innerHTML='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(res.error.message||'')+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} return; }
+      if(res&&res.error){ var pre=$('li_pre'); if(pre) pre.innerHTML+='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(res.error.message||'')+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} return; }
       var n=(res&&res.data&&res.data.length)||recs.length; closeDlv(); toast(n+' lead(s) imported to the enrichment queue.'); lmReload();
-    },function(e){ var pre=$('li_pre'); if(pre) pre.innerHTML='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(String(e))+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} });
+    },function(e){ var pre=$('li_pre'); if(pre) pre.innerHTML+='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(String(e))+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} });
   }
 
   function leadImport(){
@@ -5350,7 +5424,7 @@ window.CRM = (function(){
     lmNewOpen:lmNewOpen, lmNewChip:lmNewChip, lmNewCardPick:lmNewCardPick, lmNewCardRemove:lmNewCardRemove, lmNewSave:gm(lmNewSave), lmNewForce:gm(lmNewForce),
     lmnType:lmnType, lmnAddContact:lmnAddContact, lmnDelContact:lmnDelContact, lmnAddPhone:lmnAddPhone, lmnDelPhone:lmnDelPhone, lmnAddEmail:lmnAddEmail, lmnDelEmail:lmnDelEmail,
     lmNewGroupPick:lmNewGroupPick, lmNewGroupRemove:lmNewGroupRemove, lmNewFlyerPick:lmNewFlyerPick, lmNewFlyerRemove:lmNewFlyerRemove,
-    lmImportOpen:lmImportOpen, lmImportPre:lmImportPre, lmImportRun:gm(lmImportRun),
+    lmImportOpen:lmImportOpen, lmImportPre:lmImportPre, lmImportRun:gm(lmImportRun), lmImportDownloadTemplate:lmImportDownloadTemplate, lmImportFilePick:lmImportFilePick,
     leadQualifyOpen:leadQualifyOpen, leadGate:leadGate, leadQualifySave:gm(leadQualifySave),
     leadAssignOpen:leadAssignOpen, leadPickRegion:leadPickRegion, leadAssignSave:gm(leadAssignSave),
     leadEscalateOpen:leadEscalateOpen, leadEscalate:gs(leadEscalate),
