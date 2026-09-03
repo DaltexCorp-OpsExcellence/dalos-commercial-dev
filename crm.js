@@ -5333,7 +5333,9 @@ window.CRM = (function(){
     if(!canManageLeads()){ toast('<b>Not permitted</b>'); return; }
     if(!lmImp||!lmImp.ready||!lmImp.ready.length){ toast('Run Pre-flight first — nothing ready.'); return; }
     if(!SB){ toast('No connection.'); return; }
-    var recs=lmImp.ready, btn=$('li_go'); if(btn){ btn.disabled=true; btn.textContent='Importing…'; }
+    /* stamp the campaign at import time — it can be picked/changed after pre-flight built the rows */
+    var campId=(($('li_campaign')||{}).value||'')||null;
+    var recs=lmImp.ready.map(function(r){ r.campaign_id=campId; return r; }), btn=$('li_go'); if(btn){ btn.disabled=true; btn.textContent='Importing…'; }
     SB.from('crm_leads').insert(recs).select('id').then(function(res){
       if(res&&res.error){ var pre=$('li_pre'); if(pre) pre.innerHTML+='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(res.error.message||'')+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} return; }
       var n=(res&&res.data&&res.data.length)||recs.length; closeDlv(); toast(n+' lead(s) imported to the enrichment queue.'); lmReload();
