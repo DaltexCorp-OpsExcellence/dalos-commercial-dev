@@ -3126,37 +3126,75 @@ window.CRM = (function(){
   }
   function lmEnrichProdChips(sel){ sel=sel||[]; var s={}; sel.forEach(function(p){s[p]=1;}); return CAP_PRODUCTS.map(function(p){ return '<button type="button" class="capchip'+(s[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.lmEnrichChip(this)">'+esc(p)+'</button>'; }).join(''); }
   function lmEnrichChip(btn){ btn.classList.toggle('on'); }
+  /* split a comma-joined type string into {map, other} against a known tile list */
+  function lmnSeedTypes(csv,known){ var m={},other=''; String(csv||'').split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(v){ if(known.indexOf(v)>=0) m[v]=1; else { m['Other']=1; other=other?other+', '+v:v; } }); return {m:m,other:other}; }
   function lmEnrichOpen(id){
     var l=lmById(id); if(!l) return; var r=l.raw||{}, rp=r.raw_payload||{};
-    var typeOpts=function(a){ return [['','—']].concat(a.map(function(x){return [x,x];})); };
-    var body='<div class="l-form"><div class="l-formnote">Complete anything left blank at the stand — every capture field is here, and it all saves to the lead. Fill the empties, then Qualify.</div>'
+    /* seed the shared LMN state from the lead so the New-Lead controls render pre-filled */
+    var prod={}; (r.product_interest||[]).forEach(function(p){prod[p]=1;});
+    var impP=lmnSeedTypes(rp.importer_type,LMN_IMP), expP=lmnSeedTypes(rp.exporter_type,LMN_EXP);
+    var crops={}; (r.crop_types||[]).forEach(function(c){crops[c]=1;});
+    var contacts=(r.contacts&&r.contacts.length)
+      ? r.contacts.map(function(c){ return {name:c.name||'',role:c.role||'',phones:(c.phones&&c.phones.length?c.phones.slice():['']),emails:(c.emails&&c.emails.length?c.emails.slice():[''])}; })
+      : [{name:r.contact_name||'',role:r.contact_role||'',phones:[r.phone||''],emails:[r.email||'']}];
+    LMN={products:prod,imp:impP.m,exp:expP.m,crops:crops,cats:Object.assign({},r.categories||{}),contacts:contacts,cardData:null,groupData:null,flyerData:null,force:false};
+    var lbl=function(t,m){ return '<label class="form-label" style="margin-top:10px">'+t+(m?' <span class="lmuted" style="font-weight:500;color:var(--text3)">· '+m+'</span>':'')+'</label>'; };
+    var fileRow=function(fid,label,pick,cap,has){ return '<label class="form-label" style="margin-top:10px">'+label+'</label><input type="file" accept="image/*"'+(cap?' capture="environment"':'')+' id="'+fid+'" onchange="CRM.'+pick+'(this)" class="form-input"/>'+(has?'<div class="cell-sub" style="margin-top:3px">A photo is already saved — choose a file only to replace it.</div>':'')+'<div id="'+fid+'_chip"></div>'; };
+    var body='<div class="l-form"><div class="l-formnote">Edit / complete this lead — every capture field is here, and it all saves to the lead. Fill the empties, then Qualify.</div>'
       +'<div class="l-qhdr">'+esc(l.company)+'</div>'
-      +field('lm_contact','Contact name',r.contact_name,'e.g. J. Whitfield')
-      +field('lm_role','Contact role / title',r.contact_role,'e.g. Procurement Manager')
-      +'<div class="grid2">'+field('lm_email','Email',r.email,'name@company.com')+field('lm_phone','Phone',r.phone,'')+'</div>'
-      +'<div class="grid2">'+field('lm_website','Website',r.website,'www.company.com')+field('lm_country','Country',r.country,'')+'</div>'
+      +'<div class="grid2" style="gap:8px">'+field('lm_country','Country',r.country,'')+field('lm_website','Website',r.website,'')+'</div>'
+      +lbl('Contacts','each with their own phone(s) &amp; email(s)')+'<div id="lmn_contacts">'+lmnContactsHtml()+'</div>'
+      +lbl('Importer type','all that apply')+'<div class="opt-tiles" id="lmn_imp">'+lmnTypeTiles('imp')+'</div>'
+      +'<input class="form-input" id="lmn_imp_other" placeholder="Other — which importer type?" style="'+(impP.m['Other']?'':'display:none;')+'margin-top:8px" value="'+esc(impP.other||rp.importer_other||'')+'"/>'
+      +lbl('Exporter type','all that apply')+'<div class="opt-tiles" id="lmn_exp">'+lmnTypeTiles('exp')+'</div>'
+      +'<input class="form-input" id="lmn_exp_other" placeholder="Other — which exporter type?" style="'+(expP.m['Other']?'':'display:none;')+'margin-top:8px" value="'+esc(expP.other||rp.exporter_other||'')+'"/>'
       +field('lm_address','Address',r.address,'street, city, country')
-      +'<label class="form-label" style="margin-top:8px">Products of interest</label><div class="capchips" id="lm_products">'+lmEnrichProdChips(r.product_interest)+'</div>'
-      +'<div class="grid2">'+field('lm_band','Expected volume band',r.expected_volume_band,'e.g. 1–5 containers')+field('lm_qty','Annual quantity',rp.annual_quantity,'e.g. 300 cont. / season')+'</div>'
-      +'<div class="grid2">'+field('lm_port','Destination port',r.destination_port,'e.g. Jebel Ali')+field('lm_season','Season window',r.season_window,'e.g. wk 40–48')+'</div>'
-      +'<div class="grid2">'+selField('lm_exp','Exporter type',typeOpts(['Grower','Trader','Association','Other']),rp.exporter_type||'')+selField('lm_imp','Importer type',typeOpts(['Agent','Retailer','Wholesaler','Other']),rp.importer_type||'')+'</div>'
+      +lbl('Crop type','all that apply')+'<div class="opt-tiles" id="lmn_crops" style="grid-template-columns:repeat(3,1fr)">'+lmnTypeTiles('crop')+'</div>'
+      +lbl('Products of interest','')+'<div class="capchips" id="lmn_prodchips">'+lmNewProdChips()+'</div>'
+      +lbl('Category','optional, per product')+'<div id="lmn_cats"></div>'
+      +'<div class="grid2" style="gap:8px">'+field('lm_port','Destination port',r.destination_port,'e.g. Jebel Ali')+field('lm_band','Volume band',r.expected_volume_band,'e.g. 1–5 containers')+'</div>'
+      +'<div class="grid2" style="gap:8px">'+field('lm_season','Season window',r.season_window,'e.g. wk 40–48')+field('lm_qty','Annual quantity',rp.annual_quantity,'')+'</div>'
       +field('lm_industries','Products / industries they deal in',rp.products_industries,'what they trade')
       +field('lm_trade','Countries of export / import',rp.trade_countries,'e.g. UK, Germany, UAE')
-      +'<label class="form-label" style="margin-top:8px">Notes</label><textarea class="form-input" id="lm_notes" rows="3">'+esc(r.notes||'')+'</textarea>'
+      +fileRow('lmn_card','Business card / badge photo','lmNewCardPick',1,l.cardPath)
+      +fileRow('lmn_group','Group photo with the lead','lmNewGroupPick',1,l.groupPath)
+      +fileRow('lmn_flyer','Flyer / document','lmNewFlyerPick',0,l.flyerPath)
+      +'<label class="form-label" style="margin-top:10px">Notes</label><textarea class="form-input" id="lm_notes" rows="3">'+esc(r.notes||'')+'</textarea>'
       +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.lmEnrichSave(\''+l.id+'\')">Save enrichment</button><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
-    showDlv('Enrich lead',body);
+    showDlv('Enrich lead',body); lmNewCardChip(); lmNewGroupChip(); lmNewFlyerChip(); lmnRenderCats();
   }
   function lmEnrichSave(id){
     var l=lmById(id), r=(l&&l.raw)||{}, rp=Object.assign({},r.raw_payload||{});
     function setrp(k,v){ if(v) rp[k]=v; else delete rp[k]; }
-    setrp('exporter_type',lmVal('lm_exp')); setrp('importer_type',lmVal('lm_imp'));
+    lmnReadContacts();
+    var contacts=(LMN.contacts||[]).map(function(c){ var ph=(c.phones||[]).map(function(s){return (s||'').trim();}).filter(Boolean); var em=(c.emails||[]).map(function(s){return (s||'').trim();}).filter(Boolean); return {name:(c.name||'').trim(),role:(c.role||'').trim(),phones:ph,emails:em}; }).filter(function(c){ return c.name||c.role||c.phones.length||c.emails.length; });
+    var primary=contacts[0]||{name:'',role:'',phones:[],emails:[]};
+    var imps=LMN_IMP.filter(function(x){return LMN.imp[x];}), exps=LMN_EXP.filter(function(x){return LMN.exp[x];});
+    var crops=LMN_CROPS.filter(function(x){return LMN.crops[x];});
+    var products=lmnProducts().filter(function(p){return LMN.products[p];});
+    lmnReadCats();
+    var cats={}; lmnCatProducts().forEach(function(p){ var t=(LMN.cats[p]||'').trim(); if(t) cats[p]=t; });
+    setrp('importer_type', imps.length?imps.join(', '):'');
+    setrp('exporter_type', exps.length?exps.join(', '):'');
+    setrp('importer_other', (LMN.imp['Other']&&lmVal('lmn_imp_other'))?lmVal('lmn_imp_other'):'');
+    setrp('exporter_other', (LMN.exp['Other']&&lmVal('lmn_exp_other'))?lmVal('lmn_exp_other'):'');
     setrp('products_industries',lmVal('lm_industries')); setrp('trade_countries',lmVal('lm_trade')); setrp('annual_quantity',lmVal('lm_qty'));
-    var prods=[]; var box=$('lm_products'); if(box){ var on=box.querySelectorAll('.capchip.on'); for(var i=0;i<on.length;i++) prods.push(on[i].getAttribute('data-prod')); }
-    lmUpdate(id,{ contact_name:lmVal('lm_contact'), contact_role:lmVal('lm_role'), email:lmVal('lm_email'), phone:lmVal('lm_phone'),
+    var patch={ contact_name:primary.name||null, contact_role:primary.role||null, email:primary.emails[0]||null, phone:primary.phones[0]||null,
       website:lmVal('lm_website'), country:lmVal('lm_country'), address:lmVal('lm_address'),
       expected_volume_band:lmVal('lm_band'), destination_port:lmVal('lm_port'), season_window:lmVal('lm_season'),
-      product_interest:(prods.length?prods:null), notes:lmVal('lm_notes'),
-      raw_payload:(Object.keys(rp).length?rp:null) },'Enrichment saved.');
+      product_interest:(products.length?products:null),
+      contacts:(contacts.length?contacts:null),
+      crop_types:(crops.length?crops:null),
+      categories:(Object.keys(cats).length?cats:null),
+      notes:lmVal('lm_notes'),
+      raw_payload:(Object.keys(rp).length?rp:null) };
+    var camp=(r.campaign_id)||'nocamp', pending=[];
+    function up(data,col,suffix){ if(!data||!SB) return; pending.push(SB.storage.from('crm-lead-cards').upload(camp+'/'+id+suffix+'.jpg', capDataUrlToBlob(data), {contentType:'image/jpeg',upsert:true}).then(function(u){ if(!(u&&u.error)) patch[col]=camp+'/'+id+suffix+'.jpg'; },function(){})); }
+    up(LMN.cardData,'card_image_path','');
+    up(LMN.groupData,'group_image_path','-group');
+    up(LMN.flyerData,'flyer_image_path','-flyer');
+    if(!pending.length){ lmUpdate(id,patch,'Enrichment saved.'); return; }
+    Promise.all(pending).then(function(){ lmUpdate(id,patch,'Enrichment saved.'); },function(){ lmUpdate(id,patch,'Enrichment saved.'); });
   }
   function lmQualify(id){ var l=lmById(id); if(!l) return; lmUpdate(id,{ stage:1, disposition:'qualified', qualified_at:new Date().toISOString() },'<b>'+esc(l.company)+'</b> qualified → assign it to a region.'); }
   var lmAsg=null;
