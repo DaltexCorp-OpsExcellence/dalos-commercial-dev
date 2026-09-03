@@ -2851,7 +2851,8 @@ window.CRM = (function(){
   /* Forked option lists — New Lead only, so Show Mode's CAP_* and the public form are untouched. */
   var LMN_IMP=['Agent','Retailer','Wholesaler','Web Shop','Factory','Horeca','Other'];
   var LMN_EXP=['Grower','Trader','Association','Other'];
-  var LMN_PRODUCTS=CAP_PRODUCTS.filter(function(p){return p!=='Other';}).concat(['Radish','Blueberry','General','Other']);
+  /* lazy — CAP_PRODUCTS is defined later in the file; computing at load time would throw */
+  function lmnProducts(){ return CAP_PRODUCTS.filter(function(p){return p!=='Other';}).concat(['Radish','Blueberry','General','Other']); }
   var LMN_CROPS=['Fresh','Frozen','Processed'];
   var LMN={products:{},imp:{},exp:{},crops:{},cats:{},contacts:[{name:'',role:'',phones:[''],emails:['']}],cardData:null,groupData:null,flyerData:null,force:false};
   /* importer / exporter / crop-type tiles (all multi-select) */
@@ -2880,7 +2881,7 @@ window.CRM = (function(){
   function lmnAddEmail(i){ lmnReadContacts(); LMN.contacts[i].emails.push(''); lmnRenderContacts(); }
   function lmnDelEmail(i,j){ lmnReadContacts(); LMN.contacts[i].emails.splice(j,1); if(!LMN.contacts[i].emails.length) LMN.contacts[i].emails.push(''); lmnRenderContacts(); }
   /* open-text category per selected product (products the user picked, minus 'Other') */
-  function lmnCatProducts(){ return LMN_PRODUCTS.filter(function(p){ return LMN.products[p] && p!=='Other'; }); }
+  function lmnCatProducts(){ return lmnProducts().filter(function(p){ return LMN.products[p] && p!=='Other'; }); }
   function lmnReadCats(){ var box=$('lmn_cats'); if(!box) return; var ins=box.querySelectorAll('input[data-catp]'); for(var i=0;i<ins.length;i++){ LMN.cats[ins[i].getAttribute('data-catp')]=ins[i].value; } }
   function lmnRenderCats(){ var box=$('lmn_cats'); if(!box) return; lmnReadCats();
     var ps=lmnCatProducts();
@@ -2896,7 +2897,7 @@ window.CRM = (function(){
   function lmNewFlyerPick(input){ lmnPickImg(input,function(d){ LMN.flyerData=d; lmNewFlyerChip(); }); }
   function lmNewGroupRemove(){ LMN.groupData=null; lmNewGroupChip(); var fi=$('lmn_group'); if(fi) fi.value=''; }
   function lmNewFlyerRemove(){ LMN.flyerData=null; lmNewFlyerChip(); var fi=$('lmn_flyer'); if(fi) fi.value=''; }
-  function lmNewProdChips(){ return LMN_PRODUCTS.map(function(p){ return '<button type="button" class="capchip'+(LMN.products[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.lmNewChip(this)">'+esc(p)+'</button>'; }).join(''); }
+  function lmNewProdChips(){ return lmnProducts().map(function(p){ return '<button type="button" class="capchip'+(LMN.products[p]?' on':'')+'" data-prod="'+esc(p)+'" onclick="CRM.lmNewChip(this)">'+esc(p)+'</button>'; }).join(''); }
   function lmNewChip(btn){ var p=btn.getAttribute('data-prod'); LMN.products[p]=!LMN.products[p]; btn.classList.toggle('on',!!LMN.products[p]); lmnRenderCats(); }
   function lmNewCardChip(){ var el=$('lmn_card_chip'); if(!el) return;
     el.innerHTML=LMN.cardData?'<div style="display:flex;align-items:center;gap:9px;margin-top:6px;padding:7px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2)"><img src="'+LMN.cardData+'" style="height:46px;max-width:80px;border-radius:6px;border:1px solid var(--border);object-fit:cover"/><span class="cell-sub">Card / badge photo attached</span><span class="link-btn" style="margin-left:auto" onclick="CRM.lmNewCardRemove()">Remove</span></div>':''; }
@@ -2955,7 +2956,7 @@ window.CRM = (function(){
     var primary=contacts[0]||{name:'',role:'',phones:[],emails:[]};
     var imps=LMN_IMP.filter(function(x){return LMN.imp[x];}), exps=LMN_EXP.filter(function(x){return LMN.exp[x];});
     var crops=LMN_CROPS.filter(function(x){return LMN.crops[x];});
-    var products=LMN_PRODUCTS.filter(function(p){return LMN.products[p];});
+    var products=lmnProducts().filter(function(p){return LMN.products[p];});
     lmnReadCats();
     var cats={}; lmnCatProducts().forEach(function(p){ var t=(LMN.cats[p]||'').trim(); if(t) cats[p]=t; });
     var extra={};
