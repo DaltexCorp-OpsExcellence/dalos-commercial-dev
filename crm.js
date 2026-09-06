@@ -3362,6 +3362,27 @@ window.CRM = (function(){
   }
   function lmSearch(v){ LM.q=v; clearTimeout(lmSearch._t); lmSearch._t=setTimeout(function(){ render(); var el=$('lm_q'); if(el){ el.focus(); el.value=LM.q; try{ el.selectionStart=el.selectionEnd=el.value.length; }catch(e){} } },160); }
   function lmSetF(k,v){ LM.f[k]=v; render(); }
+  /* Search predictions — matches labelled Campaign / Contact / Lead. Campaigns first (they set the
+     filter), then lead company names, then contact names; each capped so the list stays short. */
+  function lmSuggest(rows,q){
+    q=(q||'').trim().toLowerCase(); if(!q) return [];
+    var out=[], camp={}, co={}, ct={}, nC=0,nL=0,nT=0, i, l;
+    for(i=0;i<rows.length&&nC<4;i++){ l=rows[i]; if(l.campaignId&&l.campaign&&!camp[l.campaignId]&&l.campaign.toLowerCase().indexOf(q)>=0){ camp[l.campaignId]=1; out.push({type:'Campaign',label:l.campaign,cid:l.campaignId}); nC++; } }
+    for(i=0;i<rows.length&&nL<6;i++){ l=rows[i]; var c=l.company||'', k=c.toLowerCase(); if(c&&!co[k]&&k.indexOf(q)>=0){ co[k]=1; out.push({type:'Lead',label:c,id:l.id,sub:l.campaign||''}); nL++; } }
+    for(i=0;i<rows.length&&nT<6;i++){ l=rows[i]; var t=l.contact||'', kk=t.toLowerCase(); if(t&&!ct[kk]&&kk.indexOf(q)>=0){ ct[kk]=1; out.push({type:'Contact',label:t,id:l.id,sub:l.company||''}); nT++; } }
+    return out;
+  }
+  function lmSuggBox(rows){
+    if(!(LM.q||'').trim()) return '';
+    var sugg=lmSuggest(rows,LM.q); if(!sugg.length) return '';
+    return '<div class="lm-sugg">'+sugg.map(function(s){
+      var tag='<span class="lm-sugg-tag lm-sugg-'+s.type.toLowerCase()+'">'+s.type+'</span>';
+      var oc=(s.type==='Campaign')?'CRM.lmSuggCampaign(\''+s.cid+'\')':'CRM.lmSuggOpen(\''+s.id+'\')';
+      return '<div class="lm-sugg-row" onmousedown="'+oc+'"><span class="lm-sugg-label">'+esc(s.label)+'</span>'+(s.sub?'<span class="lm-sugg-sub">· '+esc(s.sub)+'</span>':'')+tag+'</div>';
+    }).join('')+'</div>';
+  }
+  function lmSuggCampaign(cid){ LM.q=''; LM.f.campaign=cid; render(); }
+  function lmSuggOpen(id){ LM.q=''; render(); lmOpen(id); }
 
   /* In-view segment tabs for the consolidated Leads / My Work / Funnel views (5-item sidebar).
      Reuses the .lsub/.lsubt styling; each tab drives leadNav(dest,key) and highlights against
@@ -3436,7 +3457,7 @@ window.CRM = (function(){
       +fsel('region','All regions',lmScopedRegions())
       +fsel('stage','All stages',[['0','Captured'],['1','Qualified'],['2','Assigned']])
       +fsel('campaign','All campaigns',campOpts)
-      +'<input class="form-input" id="lm_q" value="'+esc(LM.q)+'" style="width:auto;flex:1;min-width:150px" placeholder="Search company, contact, email, country, campaign…" oninput="CRM.lmSearch(this.value)"/></div>';
+      +'<div style="position:relative;flex:1;min-width:170px"><input class="form-input" id="lm_q" value="'+esc(LM.q)+'" autocomplete="off" style="width:100%" placeholder="Search company, contact, email, country, campaign…" oninput="CRM.lmSearch(this.value)"/>'+lmSuggBox(all)+'</div></div>';
     var rows=list.map(function(l){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')">'
         +'<td><span class="lot">'+esc(l.ref)+'</span></td>'
@@ -5426,7 +5447,7 @@ window.CRM = (function(){
     lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSetPipeAsg:lmSetPipeAsg,
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSuggCampaign:lmSuggCampaign, lmSuggOpen:lmSuggOpen, lmSetPipeAsg:lmSetPipeAsg,
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
@@ -6321,6 +6342,17 @@ function injectCrmCss(){
 .crmv .lmncat-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
 .crmv .lmncat-p{flex:0 0 118px;font-size:12.5px;font-weight:700;color:var(--text)}
 .crmv .lmncat-row .form-input{flex:1}
+/* Leads search predictions (typeahead) */
+.crmv .lm-sugg{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;background:#fff;border:1px solid var(--border2);border-radius:10px;box-shadow:0 10px 28px -10px rgba(34,31,43,.30);overflow:hidden;max-height:340px;overflow-y:auto}
+.crmv .lm-sugg-row{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border)}
+.crmv .lm-sugg-row:last-child{border-bottom:none}
+.crmv .lm-sugg-row:hover{background:var(--bg2)}
+.crmv .lm-sugg-label{font-size:13px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crmv .lm-sugg-sub{font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.crmv .lm-sugg-tag{margin-left:auto;flex:0 0 auto;font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px}
+.crmv .lm-sugg-campaign{background:color-mix(in srgb,var(--accent) 14%,#fff);color:var(--accent)}
+.crmv .lm-sugg-lead{background:var(--bg2);color:var(--text2)}
+.crmv .lm-sugg-contact{background:var(--green-bg);color:var(--green)}
 /* ── ELITE lift (materials / wells / masthead / save bar) — Pewter, additive ── */
 .crmv .lead-portal .card{border-color:var(--border2);box-shadow:0 1px 2px rgba(34,31,43,.05),0 12px 32px -16px rgba(34,31,43,.20)}
 .crmv .lead-portal .form-input{background:#fff;border-color:var(--border2);transition:border-color .15s,box-shadow .15s}
