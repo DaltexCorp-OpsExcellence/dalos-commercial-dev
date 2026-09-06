@@ -2651,7 +2651,7 @@ window.CRM = (function(){
      LEADS array + lead* handlers below still power the DEFERRED views (Lead
      inbox, Funnel, Conversion) — demo-only until the Phase-2 rules land.
      ═══════════════════════════════════════════════════════════════════════ */
-  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all'},myRegions:null,myManagerRegions:null,pipeAsg:'all',parkFilter:'all',xsFrom:'all',xsWants:'all',xsParked:true};
+  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all',campaign:'all'},myRegions:null,myManagerRegions:null,pipeAsg:'all',parkFilter:'all',xsFrom:'all',xsWants:'all',xsParked:true};
   /* Leads use the SAME region model as Tracking & Claims: regions (slug id + label) + region_members.
      Assignable regions = real regions from the loaded REGIONS list, excluding 'all' and the bucket. */
   function lmRealRegions(){ return REGIONS.filter(function(r){ return r.id!=='all' && !r.admin; }).map(function(r){ return [r.id,r.label]; }); }
@@ -3413,11 +3413,17 @@ window.CRM = (function(){
       kcard('Qualified',String(qualN),'ready to assign')+
       kcard('Assigned',String(asgN),'to a region');
     var q=(LM.q||'').toLowerCase();
+    /* campaign filter options — distinct campaigns present among these leads, + a "no campaign" bucket */
+    var campSeen={}, campOpts=[], anyNoCamp=false;
+    base.forEach(function(l){ if(l.campaignId){ if(!campSeen[l.campaignId]){ campSeen[l.campaignId]=1; campOpts.push([l.campaignId, l.campaign||l.campaignId]); } } else anyNoCamp=true; });
+    campOpts.sort(function(a,b){ return String(a[1]).localeCompare(String(b[1])); });
+    if(anyNoCamp) campOpts.push(['__none__','— No campaign —']);
     var list=all.filter(function(l){
       if(LM.f.source!=='all'&&l.source!==LM.f.source) return false;
       if(LM.f.region!=='all'&&(l.assignedRegion||'')!==LM.f.region) return false;
       if(LM.f.stage!=='all'&&String(l.stage)!==LM.f.stage) return false;
-      if(q){ var hay=(l.company+' '+l.contact+' '+l.email+' '+l.country).toLowerCase(); if(hay.indexOf(q)<0) return false; }
+      if(LM.f.campaign!=='all'){ if(LM.f.campaign==='__none__'){ if(l.campaignId) return false; } else if((l.campaignId||'')!==LM.f.campaign) return false; }
+      if(q){ var hay=(l.company+' '+l.contact+' '+l.email+' '+l.country+' '+(l.campaign||'')).toLowerCase(); if(hay.indexOf(q)<0) return false; }
       return true;
     });
     function fsel(key,label,opts){
@@ -3429,7 +3435,8 @@ window.CRM = (function(){
       +fsel('source','All sources',LM_SOURCES)
       +fsel('region','All regions',lmScopedRegions())
       +fsel('stage','All stages',[['0','Captured'],['1','Qualified'],['2','Assigned']])
-      +'<input class="form-input" id="lm_q" value="'+esc(LM.q)+'" style="width:auto;flex:1;min-width:150px" placeholder="Search company, contact, email, country…" oninput="CRM.lmSearch(this.value)"/></div>';
+      +fsel('campaign','All campaigns',campOpts)
+      +'<input class="form-input" id="lm_q" value="'+esc(LM.q)+'" style="width:auto;flex:1;min-width:150px" placeholder="Search company, contact, email, country, campaign…" oninput="CRM.lmSearch(this.value)"/></div>';
     var rows=list.map(function(l){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')">'
         +'<td><span class="lot">'+esc(l.ref)+'</span></td>'
