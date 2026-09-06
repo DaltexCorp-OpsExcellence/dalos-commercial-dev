@@ -3007,6 +3007,21 @@ window.CRM = (function(){
     var or=function(v){ return (v==null||v===''||(Array.isArray(v)&&!v.length))?'<span class="cell-sub">—</span>':esc(Array.isArray(v)?v.join(', '):String(v)); };
     var sec=function(t){ return '<div class="l-dsec">'+t+'</div>'; };
     var withOther=function(t,o){ return or(t)+(o?' <span class="cell-sub">· other: '+esc(o)+'</span>':''); };
+    /* Each contact as a self-contained business-card box: monogram + name/role + its own phone(s)/email(s). */
+    var contactCard=function(c,primary){
+      var ph=(c.phones||[]).filter(Boolean), em=(c.emails||[]).filter(Boolean);
+      var mono=esc(((c.name||'?').trim().charAt(0)||'?').toUpperCase());
+      var lines=ph.map(function(p){ return '<div class="l-cc-line"><span class="l-cc-ic">☏</span>'+esc(p)+'</div>'; }).join('')
+               +em.map(function(e){ return '<div class="l-cc-line"><span class="l-cc-ic">✉</span>'+esc(e)+'</div>'; }).join('');
+      if(!lines) lines='<div class="l-cc-line cell-sub">No phone or email yet</div>';
+      return '<div class="l-cc"><div class="l-cc-head"><span class="l-cc-mono">'+mono+'</span>'
+        +'<span class="l-cc-id"><span class="l-cc-name">'+esc(c.name||'—')+'</span>'+(c.role?'<span class="l-cc-role">'+esc(c.role)+'</span>':'')+'</span>'
+        +(primary?'<span class="l-cc-tag">Primary</span>':'')+'</div>'+lines+'</div>';
+    };
+    /* contacts array (new leads) or a single card built from the flat columns (older leads) */
+    var csList=(r0.contacts&&r0.contacts.length)?r0.contacts:[{name:r0.contact_name||'',role:r0.contact_role||'',phones:(r0.phone?[r0.phone]:[]),emails:(r0.email?[r0.email]:[])}];
+    csList=csList.filter(function(c){ return c.name||c.role||(c.phones&&c.phones.length)||(c.emails&&c.emails.length); });
+    var contactsBlock=csList.length?csList.map(function(c,i){ return contactCard(c,i===0); }).join(''):'<div class="cell-sub" style="padding:6px 0">No contact captured yet.</div>';
     var imgBlock=function(id,label,path){ return path?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">'+label+'</div><img id="'+id+'" alt="'+label+'" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)CRM.campLightbox(this.src)"/><div class="cell-sub" id="'+id+'note">Loading…</div></div>':''; };
     /* card photo moves into the hero (keeps the #lmdet_img id so the signed-URL fetch below still fills it);
        the group photo stays in the Photos section (#lmdet_gimg). */
@@ -3060,18 +3075,10 @@ window.CRM = (function(){
       +(lmIsParked(l)?row('Parked for',((l.parkProducts&&l.parkProducts.length)?l.parkProducts.map(function(p){return bdg('badge-park',p);}).join(' '):'<span class="cell-sub">later season</span>')+(l.parkRevisit?' <span class="cell-sub">· revisit '+esc(lmMonthLabel(l.parkRevisit))+'</span>':'')+(l.parkReason?' <span class="cell-sub">· '+esc(l.parkReason)+'</span>':'')):'')
       +row('Country · region',or(l.country)+' · '+(l.assignedRegion?esc(lmRegionName(l.assignedRegion)):'<span class="cell-sub">unassigned</span>'))
       +(lmIsAssigned(l)?row('Owner',l.assignedTo?((lmIsMine(l)?'You':esc(l.assignedToName||'Another rep'))+(l.assignedByName?' <span class="cell-sub">· by '+esc(l.assignedByName)+'</span>':'')):'<span class="cell-sub">Unclaimed · in the region inbox</span>'):'')
-      +row('Contact · role',or(l.contact)+(l.role?' · '+esc(l.role):''))
-      +(function(){ var cs=r0.contacts||[]; if(!cs.length) return ''; var out=[]; var p0=cs[0]||{}, ex=[];
-          if((p0.phones||[]).length>1) ex.push('phones: '+esc(p0.phones.join(', ')));
-          if((p0.emails||[]).length>1) ex.push('emails: '+esc(p0.emails.join(', ')));
-          if(ex.length) out.push(row('Primary · more','<span class="cell-sub">'+ex.join(' · ')+'</span>'));
-          cs.slice(1).forEach(function(c){ var bits=[]; if(c.phones&&c.phones.length) bits.push(esc(c.phones.join(', '))); if(c.emails&&c.emails.length) bits.push(esc(c.emails.join(', '))); out.push(row('Contact',esc(c.name||'—')+(c.role?' · '+esc(c.role):'')+(bits.length?' <span class="cell-sub">· '+bits.join(' · ')+'</span>':''))); });
-          return out.join(''); })()
       +row('Importer type',withOther(rp.importer_type,rp.importer_other))
       +row('Exporter type',withOther(rp.exporter_type,rp.exporter_other))
-      +sec('How to reach')
-      +row('Email',or(l.email))
-      +row('Phone',or(l.phone))
+      +sec('Contacts')+contactsBlock
+      +sec('Web &amp; address')
       +row('Website',or(l.website))
       +row('Address',or(r0.address))
       +sec('Their business')
@@ -6353,6 +6360,16 @@ function injectCrmCss(){
 .crmv .lm-sugg-campaign{background:color-mix(in srgb,var(--accent) 14%,#fff);color:var(--accent)}
 .crmv .lm-sugg-lead{background:var(--bg2);color:var(--text2)}
 .crmv .lm-sugg-contact{background:var(--green-bg);color:var(--green)}
+/* Lead drawer — contact business-cards */
+.crmv .l-cc{border:1px solid var(--border2);border-radius:11px;background:#fff;padding:11px 13px;margin:8px 0;box-shadow:0 1px 2px rgba(34,31,43,.06)}
+.crmv .l-cc-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.crmv .l-cc-mono{width:34px;height:34px;flex:0 0 auto;border-radius:50%;background:color-mix(in srgb,var(--accent) 13%,#fff);color:var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-display,serif);font-size:16px;line-height:1}
+.crmv .l-cc-id{display:flex;flex-direction:column;min-width:0}
+.crmv .l-cc-name{font-size:14px;font-weight:600;color:var(--text);line-height:1.15;word-break:break-word}
+.crmv .l-cc-role{font-size:11.5px;color:var(--text3)}
+.crmv .l-cc-tag{margin-left:auto;flex:0 0 auto;font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent)}
+.crmv .l-cc-line{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--text2);padding:2px 0;word-break:break-word}
+.crmv .l-cc-ic{width:15px;text-align:center;color:var(--text3);flex:0 0 auto}
 /* ── ELITE lift (materials / wells / masthead / save bar) — Pewter, additive ── */
 .crmv .lead-portal .card{border-color:var(--border2);box-shadow:0 1px 2px rgba(34,31,43,.05),0 12px 32px -16px rgba(34,31,43,.20)}
 .crmv .lead-portal .form-input{background:#fff;border-color:var(--border2);transition:border-color .15s,box-shadow .15s}
