@@ -2789,7 +2789,7 @@ window.CRM = (function(){
   }
   /* ── Delete a lead — admin/power_user only, strict type-the-company-name confirm ── */
   function lmDeleteOpen(id){
-    if(!IS_ADMIN){ toast('<b>Not permitted</b> · only admins can delete leads'); return; }
+    if(!canManageLeads()){ toast('<b>Not permitted</b> · you can’t delete leads'); return; }
     var l=lmById(id); if(!l) return;
     var imgs=[l.cardPath,l.groupPath,l.flyerPath].filter(Boolean).length;
     var body='<div class="l-form">'
@@ -2805,7 +2805,7 @@ window.CRM = (function(){
   function lmDeleteMatch(id){ var l=lmById(id); if(!l) return false; var v=(($('lmdel_in')||{}).value||'').trim().toLowerCase(); return !!v && v===(l.company||'').trim().toLowerCase(); }
   function lmDeleteCheck(id){ var b=$('lmdel_go'); if(b) b.disabled=!lmDeleteMatch(id); }
   function lmDeleteConfirm(id){
-    if(!IS_ADMIN){ toast('<b>Not permitted</b>'); return; }
+    if(!canManageLeads()){ toast('<b>Not permitted</b>'); return; }
     var l=lmById(id); if(!l) return;
     if(!lmDeleteMatch(id)){ toast('Type the company name exactly to confirm.'); return; }
     if(!SB){ toast('No connection.'); return; }
@@ -3118,7 +3118,7 @@ window.CRM = (function(){
       +(l.contact?'<div class="l-hero-sub">'+esc(l.contact)+(l.role?' · '+esc(l.role):'')+'</div>':'')
       +'<div class="l-hero-chips">'+heroChips+'</div>'
       +'<div class="l-hero-prov">'+prov+' · <span class="lot">'+esc(l.ref)+'</span></div></div></div>';
-    if(IS_ADMIN) acts.push('<button class="btn btn-danger" onclick="CRM.lmDeleteOpen(\''+l.id+'\')">Delete…</button>');
+    if(canManageLeads()) acts.push('<button class="btn btn-danger" onclick="CRM.lmDeleteOpen(\''+l.id+'\')">Delete…</button>');
     var actbar='<div class="l-actbar">'+acts.join('')+'</div>';
     var body='<div class="l-form l-detail">'+hero+actbar
       +sec('Identity')
