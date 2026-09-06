@@ -2770,6 +2770,23 @@ window.CRM = (function(){
       closeDlv(); toast(msg||'Saved.'); lmReload();
     }).catch(function(e){ toast('<b>Save failed.</b> '+esc(String(e))); });
   }
+  /* Make a different contact the primary: move it to contacts[0] and re-mirror the flat
+     contact_name/role/email/phone columns (the fields list/search/dedup use). */
+  function lmSetPrimary(id,idx){
+    if(!canEditLeadStatus()){ toast('<b>Not permitted</b> · you have view-only access to leads'); return; }
+    if(!SB){ toast('No connection.'); return; }
+    var l=lmById(id); if(!l) return; var r=l.raw||{};
+    var cs=(r.contacts&&r.contacts.length)?r.contacts.slice():[{name:r.contact_name||'',role:r.contact_role||'',phones:(r.phone?[r.phone]:[]),emails:(r.email?[r.email]:[])}];
+    idx=parseInt(idx,10); if(!(idx>0&&idx<cs.length)) return;
+    var pick=cs.splice(idx,1)[0]; cs.unshift(pick); var p=cs[0]||{};
+    var patch={ contacts:cs, contact_name:p.name||null, contact_role:p.role||null, email:(p.emails&&p.emails[0])||null, phone:(p.phones&&p.phones[0])||null, updated_at:new Date().toISOString() };
+    SB.from('crm_leads').update(patch).eq('id',id).then(function(res){
+      if(res&&res.error){ toast('<b>Failed.</b> '+esc(res.error.message||'')); return; }
+      r.contacts=cs; r.contact_name=patch.contact_name; r.contact_role=patch.contact_role; r.email=patch.email; r.phone=patch.phone;
+      l.contact=patch.contact_name||''; l.role=patch.contact_role||''; l.email=patch.email||''; l.phone=patch.phone||'';
+      toast('Primary contact updated.'); render(); lmOpen(id);
+    },function(e){ toast('<b>Failed.</b> '+esc(String(e))); });
+  }
 
   /* ── deal-stage progression (Accepted → Engaged → Specs → Quoted → Shipped → Repeat) ──
      Advanceable only once a lead has an owner (Accepted). Who: the owner, a manager of the lead's
@@ -3007,21 +3024,27 @@ window.CRM = (function(){
     var or=function(v){ return (v==null||v===''||(Array.isArray(v)&&!v.length))?'<span class="cell-sub">—</span>':esc(Array.isArray(v)?v.join(', '):String(v)); };
     var sec=function(t){ return '<div class="l-dsec">'+t+'</div>'; };
     var withOther=function(t,o){ return or(t)+(o?' <span class="cell-sub">· other: '+esc(o)+'</span>':''); };
-    /* Each contact as a self-contained business-card box: monogram + name/role + its own phone(s)/email(s). */
-    var contactCard=function(c,primary){
+    /* Each contact as a self-contained business-card box: monogram + name/role + its own phone(s)/email(s).
+       "Primary" is positional (contacts[0], mirrored to the flat contact_/email/phone cols) — non-primary
+       cards get a "Make primary" action (editors only) that reorders + re-mirrors. */
+    var canEditL=(typeof canEditLeadStatus==='function')?canEditLeadStatus():true;
+    var contactCard=function(c,idx){
+      var primary=(idx===0);
       var ph=(c.phones||[]).filter(Boolean), em=(c.emails||[]).filter(Boolean);
       var mono=esc(((c.name||'?').trim().charAt(0)||'?').toUpperCase());
       var lines=ph.map(function(p){ return '<div class="l-cc-line"><span class="l-cc-ic">☏</span>'+esc(p)+'</div>'; }).join('')
                +em.map(function(e){ return '<div class="l-cc-line"><span class="l-cc-ic">✉</span>'+esc(e)+'</div>'; }).join('');
       if(!lines) lines='<div class="l-cc-line cell-sub">No phone or email yet</div>';
+      var badge=primary?'<span class="l-cc-tag">Primary</span>'
+        :(canEditL?'<span class="l-cc-mkp" onclick="CRM.lmSetPrimary(\''+l.id+'\','+idx+')">Make primary</span>':'');
       return '<div class="l-cc"><div class="l-cc-head"><span class="l-cc-mono">'+mono+'</span>'
         +'<span class="l-cc-id"><span class="l-cc-name">'+esc(c.name||'—')+'</span>'+(c.role?'<span class="l-cc-role">'+esc(c.role)+'</span>':'')+'</span>'
-        +(primary?'<span class="l-cc-tag">Primary</span>':'')+'</div>'+lines+'</div>';
+        +badge+'</div>'+lines+'</div>';
     };
     /* contacts array (new leads) or a single card built from the flat columns (older leads) */
     var csList=(r0.contacts&&r0.contacts.length)?r0.contacts:[{name:r0.contact_name||'',role:r0.contact_role||'',phones:(r0.phone?[r0.phone]:[]),emails:(r0.email?[r0.email]:[])}];
     csList=csList.filter(function(c){ return c.name||c.role||(c.phones&&c.phones.length)||(c.emails&&c.emails.length); });
-    var contactsBlock=csList.length?csList.map(function(c,i){ return contactCard(c,i===0); }).join(''):'<div class="cell-sub" style="padding:6px 0">No contact captured yet.</div>';
+    var contactsBlock=csList.length?csList.map(function(c,i){ return contactCard(c,i); }).join(''):'<div class="cell-sub" style="padding:6px 0">No contact captured yet.</div>';
     var imgBlock=function(id,label,path){ return path?'<div style="margin:4px 0 10px"><div class="cell-sub" style="margin-bottom:4px">'+label+'</div><img id="'+id+'" alt="'+label+'" style="width:100%;max-height:240px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:zoom-in;display:none" onclick="if(this.src)CRM.campLightbox(this.src)"/><div class="cell-sub" id="'+id+'note">Loading…</div></div>':''; };
     /* card photo moves into the hero (keeps the #lmdet_img id so the signed-URL fetch below still fills it);
        the group photo stays in the Photos section (#lmdet_gimg). */
@@ -5454,7 +5477,7 @@ window.CRM = (function(){
     lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSuggCampaign:lmSuggCampaign, lmSuggOpen:lmSuggOpen, lmSetPipeAsg:lmSetPipeAsg,
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSuggCampaign:lmSuggCampaign, lmSuggOpen:lmSuggOpen, lmSetPrimary:gs(lmSetPrimary), lmSetPipeAsg:lmSetPipeAsg,
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
@@ -6368,6 +6391,8 @@ function injectCrmCss(){
 .crmv .l-cc-name{font-size:14px;font-weight:600;color:var(--text);line-height:1.15;word-break:break-word}
 .crmv .l-cc-role{font-size:11.5px;color:var(--text3)}
 .crmv .l-cc-tag{margin-left:auto;flex:0 0 auto;font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent)}
+.crmv .l-cc-mkp{margin-left:auto;flex:0 0 auto;font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;white-space:nowrap;border:1px solid var(--border2);border-radius:6px;padding:3px 9px;background:#fff}
+.crmv .l-cc-mkp:hover{background:color-mix(in srgb,var(--accent) 8%,#fff);border-color:var(--accent)}
 .crmv .l-cc-line{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--text2);padding:2px 0;word-break:break-word}
 .crmv .l-cc-ic{width:15px;text-align:center;color:var(--text3);flex:0 0 auto}
 /* ── ELITE lift (materials / wells / masthead / save bar) — Pewter, additive ── */
