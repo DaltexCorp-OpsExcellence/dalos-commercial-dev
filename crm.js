@@ -2787,6 +2787,35 @@ window.CRM = (function(){
       toast('Primary contact updated.'); render(); lmOpen(id);
     },function(e){ toast('<b>Failed.</b> '+esc(String(e))); });
   }
+  /* ── Delete a lead — admin/power_user only, strict type-the-company-name confirm ── */
+  function lmDeleteOpen(id){
+    if(!IS_ADMIN){ toast('<b>Not permitted</b> · only admins can delete leads'); return; }
+    var l=lmById(id); if(!l) return;
+    var imgs=[l.cardPath,l.groupPath,l.flyerPath].filter(Boolean).length;
+    var body='<div class="l-form">'
+      +'<div class="alert-fail" style="margin-bottom:13px"><b>Delete this lead permanently?</b><br>This removes the lead and everything on it — contacts, notes'+(imgs?', '+imgs+' photo'+(imgs>1?'s':''):'')+' — and <b>cannot be undone</b>.</div>'
+      +'<div class="l-drow"><span class="cell-sub">Company</span><span>'+esc(l.company)+'</span></div>'
+      +'<div class="l-drow"><span class="cell-sub">Contact</span><span>'+esc(l.contact||'—')+(l.role?' · '+esc(l.role):'')+'</span></div>'
+      +'<div class="l-drow"><span class="cell-sub">Source · campaign</span><span>'+esc(lmSourceLabel(l.source))+(l.campaign?' · '+esc(l.campaign):'')+'</span></div>'
+      +'<label class="form-label" style="margin-top:13px">To confirm, type the company name: <span class="mono">'+esc(l.company)+'</span></label>'
+      +'<input class="form-input" id="lmdel_in" autocomplete="off" placeholder="'+esc(l.company)+'" oninput="CRM.lmDeleteCheck(\''+id+'\')"/>'
+      +'<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.lmOpen(\''+id+'\')">Cancel</button><button class="btn btn-danger" id="lmdel_go" disabled onclick="CRM.lmDeleteConfirm(\''+id+'\')">Delete lead</button></div></div>';
+    showDlv('Delete lead',body);
+  }
+  function lmDeleteMatch(id){ var l=lmById(id); if(!l) return false; var v=(($('lmdel_in')||{}).value||'').trim().toLowerCase(); return !!v && v===(l.company||'').trim().toLowerCase(); }
+  function lmDeleteCheck(id){ var b=$('lmdel_go'); if(b) b.disabled=!lmDeleteMatch(id); }
+  function lmDeleteConfirm(id){
+    if(!IS_ADMIN){ toast('<b>Not permitted</b>'); return; }
+    var l=lmById(id); if(!l) return;
+    if(!lmDeleteMatch(id)){ toast('Type the company name exactly to confirm.'); return; }
+    if(!SB){ toast('No connection.'); return; }
+    var b=$('lmdel_go'); if(b){ b.disabled=true; b.textContent='Deleting…'; }
+    SB.rpc('crm_delete_lead',{p_id:id}).then(function(res){
+      if(res&&res.error){ toast('<b>Delete failed.</b> '+esc(res.error.message||'')); if(b){b.disabled=false;b.textContent='Delete lead';} return; }
+      var paths=(res&&res.data)||[], done=function(){ closeDlv(); toast('Lead <b>'+esc(l.company)+'</b> deleted.'); lmReload(); };
+      if(paths&&paths.length){ try{ SB.storage.from('crm-lead-cards').remove(paths).then(done,done); }catch(e){ done(); } } else done();
+    },function(e){ toast('<b>Delete failed.</b> '+esc(String(e))); if(b){b.disabled=false;b.textContent='Delete lead';} });
+  }
 
   /* ── deal-stage progression (Accepted → Engaged → Specs → Quoted → Shipped → Repeat) ──
      Advanceable only once a lead has an owner (Accepted). Who: the owner, a manager of the lead's
@@ -3089,6 +3118,7 @@ window.CRM = (function(){
       +(l.contact?'<div class="l-hero-sub">'+esc(l.contact)+(l.role?' · '+esc(l.role):'')+'</div>':'')
       +'<div class="l-hero-chips">'+heroChips+'</div>'
       +'<div class="l-hero-prov">'+prov+' · <span class="lot">'+esc(l.ref)+'</span></div></div></div>';
+    if(IS_ADMIN) acts.push('<button class="btn btn-danger" onclick="CRM.lmDeleteOpen(\''+l.id+'\')">Delete…</button>');
     var actbar='<div class="l-actbar">'+acts.join('')+'</div>';
     var body='<div class="l-form l-detail">'+hero+actbar
       +sec('Identity')
@@ -5477,7 +5507,7 @@ window.CRM = (function(){
     lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
-    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSuggCampaign:lmSuggCampaign, lmSuggOpen:lmSuggOpen, lmSetPrimary:gs(lmSetPrimary), lmSetPipeAsg:lmSetPipeAsg,
+    lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSuggCampaign:lmSuggCampaign, lmSuggOpen:lmSuggOpen, lmSetPrimary:gs(lmSetPrimary), lmDeleteOpen:lmDeleteOpen, lmDeleteCheck:lmDeleteCheck, lmDeleteConfirm:lmDeleteConfirm, lmSetPipeAsg:lmSetPipeAsg,
     leadInboxCount:function(){ try{ lmEnsure(); return LM.loaded?inboxList().length:0; }catch(e){ return 0; } },
     leadSub:leadSub, leadNav:leadNav, leadSet:leadSet, leadReset:leadReset, leadOpen:leadOpen,
     leadQuickAdd:leadQuickAdd, leadSubmitQuickAdd:gm(leadSubmitQuickAdd), leadEnrich:gm(leadEnrich),
