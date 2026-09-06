@@ -3461,7 +3461,7 @@ window.CRM = (function(){
     var rows=list.map(function(l){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')">'
         +'<td><span class="lot">'+esc(l.ref)+'</span></td>'
-        +'<td>'+esc(l.company)+'</td><td>'+esc(l.country)+'</td>'
+        +'<td><div>'+esc(l.company)+'</div>'+(l.contact?'<div class="cell-sub">'+esc(l.contact)+(l.role?' · '+esc(l.role):'')+'</div>':'')+'</td><td>'+esc(l.country)+'</td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):bdg('badge-warn','unassigned'))+'</td>'
         +'<td>'+esc(l.product)+'</td>'
         +'<td>'+bdg('badge-n',lmSourceLabel(l.source))+'</td>'
