@@ -427,7 +427,8 @@ window.CRM = (function(){
     var list=visibleShipments().filter(function(s){return noCqc(s)&&!s.redirectedIn;});
     var head='<div class="section-title"><span class="section-title-bar"></span>Grading queue <span class="section-count">'+list.length+' containers without a CQC</span></div>';
     if(!list.length){ vc.innerHTML=head+'<div class="table-wrap"><div class="empty-state">Every container in this scope has a CQC report — nothing to grade.</div></div>'; return; }
-    list.sort(function(a,b){ return (needsGrading(b)?1:0)-(needsGrading(a)?1:0) || b.sortKey-a.sortKey; });
+    /* stable order (by sortKey) so a row keeps its place after it's graded, instead of sinking below the still-ungraded ones */
+    list.sort(function(a,b){ return b.sortKey-a.sortKey; });
     var gPage=pageState.grading;
     var rows=list.slice(gPage*PER_PAGE,(gPage+1)*PER_PAGE).map(function(s){
       var gs=needsGrading(s)?'<span class="badge b-warn">Needs grading</span>':'<span class="badge b-neutral" style="border-color:#c090e0;color:#6a10b0;background:#f0e8ff">CRM-graded '+esc(s.graded.grade)+'</span>';
@@ -1620,16 +1621,19 @@ window.CRM = (function(){
     var nb=$('gradeNoCqc');
     if(nb) nb.innerHTML = s.coverage==='cqc' ? ''
       : '<div class="badge b-neutral" style="margin-bottom:12px">No CQC on file — record a CRM grade as the quality read</div>';
+    var db=$('gradeDeleteBtn'); if(db) db.style.display = s.gradingId ? '' : 'none';
     openModal('gradeModal');
-    /* crm_voyages carries grade + cause but not comments, so read them directly */
+    /* crm_voyages carries grade + cause but not comments, so read them directly — and resolve who graded it for the History line */
     if(s.gradingId){
-      SB.from('crm_gradings').select('grade,cause,comments,graded_at').eq('id',s.gradingId).limit(1).then(function(r){
+      SB.from('crm_gradings').select('grade,cause,comments,graded_at,graded_by').eq('id',s.gradingId).limit(1).then(function(r){
         if(r&&r.error) return;
         var row=(r.data||[])[0];
         if(!row||!gradeCtx||gradeCtx.gradingId!==s.gradingId) return;
         if($('gradeComments')) $('gradeComments').value=row.comments||'';
         if(row.cause&&$('gradeCause')) $('gradeCause').value=row.cause;
-        if($('gradeAudit')) $('gradeAudit').innerHTML='<div class="audit-item"><span class="audit-dot"></span><span class="audit-main"><b>Graded '+esc(row.grade||'—')+'</b> · '+esc(row.cause||'—')+'</span><span class="audit-when">'+esc(fmtDate(row.graded_at)||'')+'</span></div>';
+        var paint=function(nm){ if($('gradeAudit')) $('gradeAudit').innerHTML='<div class="audit-item"><span class="audit-dot"></span><span class="audit-main"><b>Graded '+esc(row.grade||'—')+'</b> · '+esc(row.cause||'—')+(nm?' · by '+esc(nm):'')+'</span><span class="audit-when">'+esc(fmtDate(row.graded_at)||'')+'</span></div>'; };
+        paint('');
+        if(row.graded_by){ SB.from('users').select('full_name,email').eq('id',row.graded_by).limit(1).then(function(u){ if(u&&u.error) return; if(!gradeCtx||gradeCtx.gradingId!==s.gradingId) return; var uu=(u&&u.data||[])[0]; paint(uu&&(uu.full_name||uu.email)||''); }); }
       });
     }
   }
@@ -1637,7 +1641,7 @@ window.CRM = (function(){
     var s=gradeCtx; if(!s){ closeModal('gradeModal'); return; }
     if(!gradeSel){ toast('Pick a grade — A, B or C.'); return; }
     var causeVal=$('gradeCause')?$('gradeCause').value:'';
-    if(!causeVal){ toast('Pick a cause of grade.'); if($('gradeCause')) $('gradeCause').focus(); return; }
+    if(!causeVal){ toast('Pick a QC state.'); if($('gradeCause')) $('gradeCause').focus(); return; }
     var payload={ season_id:SEASON, product_id:txtOrNull((s.product||'').toLowerCase()), container_number:s.cn, voyage_key:s.key,
       client:txtOrNull(s.client), country:txtOrNull(s.country), grade:gradeSel,
       cause:causeVal, comments:txtOrNull($('gradeComments')&&$('gradeComments').value),
@@ -1652,6 +1656,18 @@ window.CRM = (function(){
       toast('Grading saved · <b>'+esc(row.grade_ref||('Grade '+gradeSel))+'</b>');
       reload();
     }).catch(function(e){ if(btn){ btn.disabled=false; btn.textContent='Save grading'; } toast('Save failed — '+esc((e&&e.message)||e)); });
+  }
+  function deleteGrade(){
+    var s=gradeCtx; if(!s||!s.gradingId) return;
+    var gid=s.gradingId;
+    crmConfirm('Remove the CRM grading for <b>'+esc(s.cn)+'</b>? The container goes back to <b>Needs grading</b>.', function(){
+      SB.from('crm_gradings').delete().eq('id',gid).then(function(res){
+        if(res&&res.error){ toast('Remove failed — '+esc(res.error.message)); return; }
+        closeModal('gradeModal');
+        toast('Grading removed.');
+        reload();
+      }).catch(function(e){ toast('Remove failed — '+esc((e&&e.message)||e)); });
+    }, 'Remove grading', 'Remove grading?');
   }
   /* ── modal open/close: unsaved-changes guard (P0-1) + focus management & dialog semantics (P1-5) ── */
   var GUARDED_MODALS={claimModal:1,gradeModal:1,redirModal:1,invClaimModal:1,invRedirModal:1};
@@ -1886,10 +1902,10 @@ window.CRM = (function(){
     +'<div class="modal-bg" id="gradeModal"><div class="modal"><div class="modal-head"><span class="modal-x" role="button" tabindex="0" aria-label="Close" onclick="CRM.requestCloseModal(\'gradeModal\')">&times;</span><div class="modal-title">CRM grading</div><div class="modal-sub" id="gradeSub">—</div></div><div class="modal-body">'
     +'<div id="gradeNoCqc"></div><div class="ctx-val" id="gradeCtx" style="margin-bottom:14px;font-size:12px">—</div>'
     +'<div class="form-row"><label class="form-label">Grade</label><div class="pill-row" style="margin-bottom:0"><span class="grade-pill" role="button" tabindex="0" onclick="CRM.setGrade(\'A\')">A</span><span class="grade-pill" role="button" tabindex="0" onclick="CRM.setGrade(\'B\')">B</span><span class="grade-pill" role="button" tabindex="0" onclick="CRM.setGrade(\'C\')">C</span></div></div>'
-    +'<div class="form-row"><label class="form-label">Cause of grade</label><select class="form-select" id="gradeCause"><option value="">— select a cause —</option><option>Field / pre-harvest</option><option>Cold chain / transit</option><option>Packing</option><option>Overripe at loading</option><option>Undetermined</option></select></div>'
+    +'<div class="form-row"><label class="form-label">QC State</label><select class="form-select" id="gradeCause"><option value="">— select QC state —</option><option>Client did not yet send QC for this shipment</option><option>QC report received and shared with Quality team</option><option>Expecting client to send QC Report</option><option>Client will not Send QC</option></select></div>'
     +'<div class="form-row"><label class="form-label">Comments</label><textarea class="form-ta" id="gradeComments" style="height:72px;resize:vertical" placeholder="Container arrived without a CQC report; graded from photos + client feedback…"></textarea></div>'
     +'<div class="msec">History</div><div class="audit" id="gradeAudit"></div>'
-    +'</div><div class="modal-foot"><button class="btn btn-secondary" onclick="CRM.requestCloseModal(\'gradeModal\')">Cancel</button><button class="btn btn-primary" id="gradeSaveBtn" onclick="CRM.saveGrade()">Save grading</button></div></div></div>';
+    +'</div><div class="modal-foot"><button class="btn btn-danger btn-sm" id="gradeDeleteBtn" style="display:none;margin-right:auto" onclick="CRM.deleteGrade()">Remove grading</button><button class="btn btn-secondary" onclick="CRM.requestCloseModal(\'gradeModal\')">Cancel</button><button class="btn btn-primary" id="gradeSaveBtn" onclick="CRM.saveGrade()">Save grading</button></div></div></div>';
   }
 
   /* ── Redirect modal (return a container to another client) ── */
@@ -5491,7 +5507,7 @@ window.CRM = (function(){
     setShipFilter:setShipFilter, resetShipFilters:resetShipFilters, setShipSort:setShipSort, setPage:setPage,
     toggleSubs:toggleSubs, togglePulse:togglePulse, pulseGo:pulseGo, openSubDrill:openSubDrill,
     openShipDetail:openShipDetail, openInsp:openInsp, openCqc:openCqc, closeDlv:closeDlv,
-    openClaim:openClaim, openGrade:openGrade, closeModal:closeModal, requestCloseModal:requestCloseModal, saveClaim:ge(saveClaim), saveGrade:ge(saveGrade), cancelClaim:ge(cancelClaim),
+    openClaim:openClaim, openGrade:openGrade, closeModal:closeModal, requestCloseModal:requestCloseModal, saveClaim:ge(saveClaim), saveGrade:ge(saveGrade), deleteGrade:ge(deleteGrade), cancelClaim:ge(cancelClaim),
     submitSettlement:submitSettlement, beginSettlement:beginSettlement, cancelSettlement:cancelSettlement, claimApprove:claimApprove, claimReject:claimReject, saveThreshold:saveThreshold, setGrade:setGrade, setScope:setScope, togglePotential:togglePotential, syncNet:syncNet, rowSelChanged:rowSelChanged,
     syncClaimPct:syncClaimPct, markClaimPctManual:markClaimPctManual,
     openRedirect:openRedirect, saveRedirect:ge(saveRedirect), setRedirScope:setRedirScope, redirClientChanged:redirClientChanged, redirRowToggle:redirRowToggle, redirPct:redirPct, redirRender:redirRender,
