@@ -215,7 +215,7 @@ window.CRM = (function(){
     var openClaims=list.filter(function(s){return s.claim&&s.claim.status==='open';}).length;
     var noData=list.filter(function(s){return s.coverage==='none';}).length;
     g.innerHTML=
-      kpi('Shipments',list.length.toLocaleString(),filtered?'matching filters':(currentRegion==='all'?'across all regions':'in region'))+
+      kpi('Shipments',qcBase.toLocaleString(),filtered?'matching filters':(currentRegion==='all'?'across all regions':'in region'))+
       kpi('Quality coverage',covPct+'%',cqcCount+' CQC · '+gradedCount+' CRM-graded')+
       kpi('Open claims',openClaims,openClaims?'need action':'none pending',openClaims?'down':'',openClaims?"CRM.setTab('claims')":null)+
       kpi('No quality data',noData,noData?'gap — grade or chase CQC':'fully covered',noData?'down':'up',noData?"CRM.pulseGo('score','none')":null);
@@ -581,7 +581,7 @@ window.CRM = (function(){
     var cqcN=list.filter(function(s){return s.coverage==='cqc';}).length, grN=list.filter(function(s){return s.coverage==='graded';}).length;
     var noneList=list.filter(function(s){return s.coverage==='none';}), noneDelivered=noneList.filter(function(s){return s.status==='delivered';}).length;
     var tiles='<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">'+
-      kpi('Shipments',list.length.toLocaleString(),cartons.toLocaleString()+' ctn · '+Math.round(netTons).toLocaleString()+' t net')+
+      kpi('Shipments',list.filter(function(s){return !s.redirectedIn;}).length.toLocaleString(),cartons.toLocaleString()+' ctn · '+Math.round(netTons).toLocaleString()+' t net')+
       kpi('In transit',transit.length,arriving?arriving+' arriving ≤ 7 days':'none arriving this week',arriving?'up':'')+
       kpi('Delivered',delivered,(list.length?Math.round(delivered/list.length*100):0)+'% of shipments')+
       kpi('Claims',claims.length,openC.length+' open · '+potC+' potential',openC.length?'down':'',"CRM.setTab('claims')")+
