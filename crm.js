@@ -173,7 +173,7 @@ window.CRM = (function(){
   /* ── switchers ── */
   function resetPages(){ pageState={shipments:0,grading:0,claims:0,clean:0,invoices:0}; }
   function renderRegions(){
-    var base=baseFiltered('region'), counts={};
+    var base=baseFiltered('region').filter(function(s){return !s.redirectedIn;}), counts={};
     base.forEach(function(s){ counts[s.region]=(counts[s.region]||0)+1; });
     counts.all=base.length;
     var el=$('regionSel'); if(!el) return;
@@ -185,7 +185,7 @@ window.CRM = (function(){
       }).join('')+'</select></span>';
   }
   function renderProducts(){
-    var list=baseFiltered('product'), counts={};
+    var list=baseFiltered('product').filter(function(s){return !s.redirectedIn;}), counts={};
     list.forEach(function(s){ var p=shipProduct(s); counts[p]=(counts[p]||0)+1; });
     var opts=[['all','All products',list.length]];
     Object.keys(counts).sort().forEach(function(p){ opts.push([p,p,counts[p]]); });
@@ -417,7 +417,7 @@ window.CRM = (function(){
         '<td>'+(s.claim?claimBadge(s.claim):'<span class="cell-sub">—</span>')+'</td>'+
         '<td class="right"><button class="btn btn-secondary btn-sm" data-crm-act="openClaim" data-crm-key="'+esc(s.key)+'">'+(s.claim?'View claim':'Raise claim')+'</button></td></tr>';
     }).join('');
-    var head='<div class="section-title"><span class="section-title-bar"></span>Shipments <span class="section-count">'+list.length.toLocaleString()+' in view · click a row for the full record</span></div>';
+    var head='<div class="section-title"><span class="section-title-bar"></span>Shipments <span class="section-count">'+list.filter(function(s){return !s.redirectedIn;}).length.toLocaleString()+' in view · click a row for the full record</span></div>';
     vc.innerHTML=head+filters+(list.length?'<div class="table-wrap"><table class="wl"><thead><tr><th>Container</th><th>Client</th><th>Product</th><th>Variety</th><th>ETA</th><th>Status</th><th>Quality</th><th>Gap</th><th>Claim</th><th class="right">Action</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+pagerHtml(list.length,page,'shipments'):'<div class="table-wrap"><div class="empty-state">No shipments match these filters.</div></div>');
   }
 
