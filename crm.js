@@ -3826,10 +3826,31 @@ window.CRM = (function(){
     SB.rpc('crm_show_mode_captures',{p_campaign:CAP.campaignId}).then(function(res){
       if(res && !res.error){
         CAP.campaignRows=res.data||[];
+        capPruneDeleted();
         var sig=CAP.campaignId+'|'+CAP.campaignRows.map(function(r){ return (r.client_uuid||'')+':'+(r.captured_at||''); }).join(',');
         if(sig!==CAP._rosterSig){ CAP._rosterSig=sig; capRenderList(); }
       }
     }, function(){}).catch(function(){});
+  }
+  /* A lead deleted from Leads stays in the capturing device's IndexedDB copy and kept showing in
+     the roster. Once the server roster has loaded, drop this campaign's device copies that are
+     already synced (not dirty, not being edited, >2 min old) but no longer exist on the server.
+     Only for roles the roster RPC serves, and only when the roster isn't truncated (500 cap).
+     Unsynced captures are never touched. */
+  function capPruneDeleted(){
+    if(!canManageLeads()) return;
+    var rows=CAP.campaignRows||[]; if(rows.length>=500) return;
+    var live={}; rows.forEach(function(r){ if(r.client_uuid) live[r.client_uuid]=1; });
+    var cutoff=Date.now()-120000;
+    var gone=(CAP.items||[]).filter(function(it){
+      return it && it.client_uuid && it._synced===true && !it._dirty && it.campaign_id===CAP.campaignId
+        && it.client_uuid!==CAP.editingId && !live[it.client_uuid]
+        && new Date(it.captured_at||0).getTime()<cutoff;
+    });
+    if(!gone.length) return;
+    var ids={}; gone.forEach(function(it){ ids[it.client_uuid]=1; capDelDB(it.client_uuid).catch(function(){}); });
+    CAP.items=CAP.items.filter(function(it){ return !ids[it.client_uuid]; });
+    capRenderHead(); capRenderList();
   }
   /* Merge everyone's synced campaign rows with this device's local captures (dedupe by client_uuid,
      regardless of _synced — so a just-synced row stays visible until the roster supersedes it, and
