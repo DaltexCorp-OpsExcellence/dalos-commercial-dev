@@ -3834,21 +3834,29 @@ window.CRM = (function(){
   }
   /* A lead deleted from Leads stays in the capturing device's IndexedDB copy and kept showing in
      the roster. Once the server roster has loaded, drop this campaign's device copies that are
-     already synced (not dirty, not being edited, >2 min old) but no longer exist on the server.
-     Only for roles the roster RPC serves, and only when the roster isn't truncated (500 cap).
-     Unsynced captures are never touched. */
+     already synced but no longer exist on the server. Guards (flaky-network safe):
+     - runs only after a SUCCESSFUL roster load (offline / errors never reach here);
+     - never touches unsynced, dirty, or currently-edited captures;
+     - never touches a copy still holding an unsent photo (_card/_group/_flyer_data kept for retry);
+     - a copy must be missing from TWO consecutive roster loads (covers an upload that lands while
+       a roster request is in flight) and be >2 min old;
+     - only for roles the roster RPC serves, and only when the roster isn't truncated (500 cap). */
   function capPruneDeleted(){
     if(!canManageLeads()) return;
     var rows=CAP.campaignRows||[]; if(rows.length>=500) return;
     var live={}; rows.forEach(function(r){ if(r.client_uuid) live[r.client_uuid]=1; });
-    var cutoff=Date.now()-120000;
+    var miss=CAP._pruneMiss||(CAP._pruneMiss={}), seen={}, cutoff=Date.now()-120000;
     var gone=(CAP.items||[]).filter(function(it){
-      return it && it.client_uuid && it._synced===true && !it._dirty && it.campaign_id===CAP.campaignId
+      if(!(it && it.client_uuid && it._synced===true && !it._dirty && it.campaign_id===CAP.campaignId
         && it.client_uuid!==CAP.editingId && !live[it.client_uuid]
-        && new Date(it.captured_at||0).getTime()<cutoff;
+        && !it._card_data && !it._group_data && !it._flyer_data
+        && new Date(it.captured_at||0).getTime()<cutoff)) return false;
+      var k=CAP.campaignId+'|'+it.client_uuid; seen[k]=1; miss[k]=(miss[k]||0)+1;
+      return miss[k]>=2;
     });
+    Object.keys(miss).forEach(function(k){ if(!seen[k]) delete miss[k]; });   /* reappeared → reset */
     if(!gone.length) return;
-    var ids={}; gone.forEach(function(it){ ids[it.client_uuid]=1; capDelDB(it.client_uuid).catch(function(){}); });
+    var ids={}; gone.forEach(function(it){ ids[it.client_uuid]=1; delete miss[CAP.campaignId+'|'+it.client_uuid]; capDelDB(it.client_uuid).catch(function(){}); });
     CAP.items=CAP.items.filter(function(it){ return !ids[it.client_uuid]; });
     capRenderHead(); capRenderList();
   }
