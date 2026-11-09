@@ -1509,7 +1509,7 @@ window.CRM = (function(){
       SB.rpc('save_crm_claim_full',{payload:{
         id:claimCtx.claimId,
         loaded_version:(claimLoaded&&claimLoaded.updated_at)||null,
-        season_id:SEASON, container_number:claimCtx.cn,
+        season_id:(claimLoaded&&claimLoaded.season_id)||SEASON, container_number:claimCtx.cn,   /* keep the claim's own season */
         client:txtOrNull(claimCtx.client), country:txtOrNull(claimCtx.country),
         bl_number:(claimLoaded&&claimLoaded.bl_number)||'—',
         status:'cancelled', event:'cancelled', event_detail:'cancelled by user'
@@ -1556,7 +1556,7 @@ window.CRM = (function(){
     var payload={
       id:s.claimId||null,
       loaded_version:(claimLoaded&&claimLoaded.updated_at)||null,
-      season_id:SEASON,
+      season_id:(s.claimId&&claimLoaded&&claimLoaded.season_id)||SEASON,   /* new = open season; edit = claim's own season */
       product_id:txtOrNull((s.product||'').toLowerCase()),
       container_number:s.cn, voyage_key:s.key,
       client:txtOrNull(s.client), sub_client:txtOrNull(s.sub), country:txtOrNull(s.country),
@@ -1647,6 +1647,7 @@ window.CRM = (function(){
       cause:causeVal, comments:txtOrNull($('gradeComments')&&$('gradeComments').value),
       graded_by:USER&&USER.id||null };
     var btn=$('gradeSaveBtn'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+    if(s.gradingId) delete payload.season_id;   /* editing never moves a grading to another season */
     var pr = s.gradingId ? SB.from('crm_gradings').update(payload).eq('id',s.gradingId).select('id,grade_ref') : SB.from('crm_gradings').insert(payload).select('id,grade_ref');
     pr.then(function(res){
       if(btn){ btn.disabled=false; btn.textContent='Save grading'; }
@@ -2252,7 +2253,7 @@ window.CRM = (function(){
   var invLifecycle='open';
   function setInvLifecycle(lc){ invLifecycle=lc; [].forEach.call(ROOT.querySelectorAll('#icLifecycle .lc-step'),function(el){ el.className='lc-step'+(el.getAttribute('data-lc')===lc?' sel-'+lc:''); }); var cf=$('icClosing'); if(cf) cf.style.display=lc==='closed'?'block':'none'; }
   function openInvClaim(inv){ invMode='claim'; _openInv(inv,function(){
-    invCtx.claimId=null; invCtx.loaded=null;
+    invCtx.claimId=null; invCtx.loaded=null; invCtx.season=null;
     $('icInv').textContent=invCtx.inv; $('icSub').textContent=invCtx.client+' · '+(regionLabel[invCtx.region]||invCtx.region)+' · '+invCtx.conts.length+' containers';
     ['icBl','icVal','icRef','icNotes','icSettled'].forEach(function(id){ setVal(id,''); }); if($('icReason'))$('icReason').selectedIndex=0; if($('icCur'))$('icCur').selectedIndex=0; if($('icRes'))$('icRes').selectedIndex=0;
     if($('icCancel'))$('icCancel').style.display='none'; if($('icSave'))$('icSave').textContent='Raise claim';
@@ -2263,7 +2264,7 @@ window.CRM = (function(){
       /* Once submitted/closed, invoice claims are reviewed/settled through the same gate as container claims — open the (read-only for approvers) claim modal instead of the editable invoice modal. */
       if(c.status!=='open'){ var _sh=null; for(var _i=0;_i<SHIPMENTS.length;_i++){ if(SHIPMENTS[_i].cn===c.container_number){ _sh=SHIPMENTS[_i]; break; } } if(_sh){ closeDlv(); openClaim(_sh.key); } else { toast('Open this claim from Shipments — container '+esc(c.container_number)+'.'); } return; }
       _openInv(c.invoice_no, function(){
-        invCtx.claimId=c.id; invCtx.loaded=c.updated_at;
+        invCtx.claimId=c.id; invCtx.loaded=c.updated_at; invCtx.season=c.season_id;
         invPL.forEach(function(pr){ pr.on=crows.some(function(cr){ return invNcn(cr.ship_container)===invNcn(pr.cn)&&(cr.variety||'')===(pr.v||'')&&(cr.farm||'')===(pr.farm||'')&&(cr.packhouse||'')===(pr.ph||''); }); });
         $('icInv').textContent=c.invoice_no; $('icSub').textContent=invCtx.client+' · edit '+(c.claim_ref||'');
         setVal('icBl',c.bl_number); setVal('icVal',c.claimed_value); setVal('icRef',c.client_ref); setVal('icNotes',c.notes); setVal('icSettled',c.settled_value);
@@ -2275,10 +2276,10 @@ window.CRM = (function(){
   }
   function invCancelClaim(){ if(!invCtx||!invCtx.claimId){ closeModal('invClaimModal'); return; } if(invBusy) return;
     crmConfirm('Cancel this claim? It stays in history as Cancelled and frees the part-loads.', function(){
-      invBusy=true; SB.rpc('save_crm_claim_full',{payload:{ id:invCtx.claimId, loaded_version:invCtx.loaded, season_id:SEASON, container_number:invCtx.conts[0].cn, anchor:'invoice', invoice_no:invCtx.inv, bl_number:'—', status:'cancelled', event:'cancelled', event_detail:'cancelled' }}).then(function(res){ invBusy=false; if(res&&res.error){ toast(claimErr(res.error)); return; } closeModal('invClaimModal'); toast('Claim cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(claimErr(e)); });
+      invBusy=true; SB.rpc('save_crm_claim_full',{payload:{ id:invCtx.claimId, loaded_version:invCtx.loaded, season_id:invCtx.season||SEASON, container_number:invCtx.conts[0].cn, anchor:'invoice', invoice_no:invCtx.inv, bl_number:'—', status:'cancelled', event:'cancelled', event_detail:'cancelled' }}).then(function(res){ invBusy=false; if(res&&res.error){ toast(claimErr(res.error)); return; } closeModal('invClaimModal'); toast('Claim cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(claimErr(e)); });
     }, 'Cancel claim'); }
   function openInvRedirect(inv){ invMode='redirect'; _openInv(inv,function(){
-    invCtx.redirectId=null; invCtx.loaded=null;
+    invCtx.redirectId=null; invCtx.loaded=null; invCtx.season=null;
     $('irInvNo').textContent=invCtx.inv; $('irSubT').textContent=invCtx.client+' · '+(regionLabel[invCtx.region]||invCtx.region)+' · '+invCtx.conts.length+' containers';
     $('irClient').innerHTML=redirClientOptions(''); $('irSub').innerHTML=redirSubOptions(''); setVal('irInv',''); setVal('irNotes','');
     if($('irCancel'))$('irCancel').style.display='none'; if($('irSave'))$('irSave').textContent='Redirect';
@@ -2287,7 +2288,7 @@ window.CRM = (function(){
     Promise.all([SB.from('crm_redirections').select('*').eq('id',id).limit(1), SB.from('crm_redirection_rows').select('*').eq('redirect_id',id)]).then(function(r){
       var x=((r[0]&&r[0].data)||[])[0]; if(!x){ toast('Redirect not found.'); return; } var xrows=(r[1]&&r[1].data)||[];
       _openInv(x.source_invoice_no, function(){
-        invCtx.redirectId=x.id; invCtx.loaded=x.updated_at;
+        invCtx.redirectId=x.id; invCtx.loaded=x.updated_at; invCtx.season=x.season_id;
         invPL.forEach(function(pr){ var m=xrows.filter(function(cr){ return invNcn(cr.ship_container)===invNcn(pr.cn)&&(cr.variety||'')===(pr.v||'')&&(cr.farm||'')===(pr.farm||'')&&(cr.packhouse||'')===(pr.ph||''); })[0]; if(m){ pr.on=true; pr.pct=Number(m.redirect_pct)||100; } });
         $('irInvNo').textContent=x.source_invoice_no||invCtx.inv; $('irSubT').textContent=invCtx.client+' · edit '+(x.redirect_ref||'');
         $('irClient').innerHTML=redirClientOptions(x.target_client||''); $('irSub').innerHTML=redirSubOptions(x.target_client||''); if(x.target_sub_client&&$('irSub'))$('irSub').value=x.target_sub_client;
@@ -2299,7 +2300,7 @@ window.CRM = (function(){
   }
   function invCancelRedirect(){ if(!invCtx||!invCtx.redirectId){ closeModal('invRedirModal'); return; } if(invBusy) return;
     crmConfirm('Cancel this redirect? It stays in history and frees the part-loads.', function(){
-      invBusy=true; SB.rpc('save_crm_redirection_full',{payload:{ id:invCtx.redirectId, loaded_version:invCtx.loaded, season_id:SEASON, container_number:invCtx.conts[0].cn, anchor:'invoice', source_invoice_no:invCtx.inv, target_client:($('irClient')&&$('irClient').value)||invCtx.client, status:'cancelled', event:'cancelled', event_detail:'cancelled' }}).then(function(res){ invBusy=false; if(res&&res.error){ toast(redirErr(res.error)); return; } closeModal('invRedirModal'); invRedirMap=null; toast('Redirect cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(redirErr(e)); });
+      invBusy=true; SB.rpc('save_crm_redirection_full',{payload:{ id:invCtx.redirectId, loaded_version:invCtx.loaded, season_id:invCtx.season||SEASON, container_number:invCtx.conts[0].cn, anchor:'invoice', source_invoice_no:invCtx.inv, target_client:($('irClient')&&$('irClient').value)||invCtx.client, status:'cancelled', event:'cancelled', event_detail:'cancelled' }}).then(function(res){ invBusy=false; if(res&&res.error){ toast(redirErr(res.error)); return; } closeModal('invRedirModal'); invRedirMap=null; toast('Redirect cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(redirErr(e)); });
     }, 'Cancel redirect'); }
   function invRedirClientChanged(){ var c=$('irClient')?$('irClient').value:''; if($('irSub')) $('irSub').innerHTML=redirSubOptions(c); invRender(); }
   /* cancel a container-anchored redirect from the Redirects list (invoice ones cancel from their modal) — P0-2 */
@@ -2323,7 +2324,7 @@ window.CRM = (function(){
     var rows=[]; invPL.forEach(function(r){ if(r.on){ rows.push({ship_container:r.cn, ship_carta:r.carta||null, variety:r.v, farm:r.farm, packhouse:r.ph, cartons:r.ctn, net_tons:r.tons}); } });
     if(!rows.length){ toast('Tick at least one part-load.'); return; }
     var payload={ id:invCtx.claimId||null, loaded_version:invCtx.loaded||null,
-      season_id:SEASON, product_id:txtOrNull((invCtx.product||'').toLowerCase()), container_number:rows[0].ship_container,
+      season_id:invCtx.season||SEASON, product_id:txtOrNull((invCtx.product||'').toLowerCase()), container_number:rows[0].ship_container,
       anchor:'invoice', invoice_no:invCtx.inv, scope:'part', status:'open',
       client:txtOrNull(invCtx.client), sub_client:txtOrNull(invCtx.sub), country:txtOrNull(invCtx.country),
       bl_number:bl.value.trim(), reason:txtOrNull($('icReason')&&$('icReason').value), client_ref:txtOrNull($('icRef')&&$('icRef').value),
@@ -2342,7 +2343,7 @@ window.CRM = (function(){
     if(!rows.length){ toast('Tick at least one part-load.'); return; }
     var sub=$('irSub')?$('irSub').value:'';
     var payload={ id:invCtx.redirectId||null, loaded_version:invCtx.loaded||null,
-      season_id:SEASON, product_id:txtOrNull((invCtx.product||'').toLowerCase()), container_number:rows[0].ship_container,
+      season_id:invCtx.season||SEASON, product_id:txtOrNull((invCtx.product||'').toLowerCase()), container_number:rows[0].ship_container,
       anchor:'invoice', source_invoice_no:invCtx.inv, scope:'part', status:'active',
       origin_client:txtOrNull(invCtx.client), origin_sub_client:txtOrNull(invCtx.sub), country:txtOrNull(invCtx.country),
       target_client:client, target_sub_client:txtOrNull(sub), invoice_no:txtOrNull($('irInv')&&$('irInv').value),
