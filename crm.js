@@ -90,7 +90,7 @@ window.CRM = (function(){
   function mapVoyage(r){
     var varieties=(r.variety_display||'').split(' / ').filter(Boolean);
     var s={
-      key:r.container_key, cn:r.container_number||r.container_key,
+      key:r.container_key, cn:r.container_number||r.container_key, season:r.season_id||null,
       client:r.client||'—', sub:r.subclient||'—', country:r.country||'',
       region:r.region_id||'unassigned', product:r.product_id?(r.product_id.charAt(0).toUpperCase()+r.product_id.slice(1)):'—', productId:r.product_id||null,
       variety:varieties[0]||'—', varieties:varieties.length>1?varieties:null,
@@ -1506,14 +1506,7 @@ window.CRM = (function(){
     if(claimBusy) return;
     crmConfirm('Cancel claim <b>'+esc(claimCtx.claimRefRaw||'')+'</b> on <span class="mono">'+esc(claimCtx.cn)+'</span>?<br>It stays in history as Cancelled and the container can be claimed again.', function(){
       claimBusy=true;
-      SB.rpc('save_crm_claim_full',{payload:{
-        id:claimCtx.claimId,
-        loaded_version:(claimLoaded&&claimLoaded.updated_at)||null,
-        season_id:(claimLoaded&&claimLoaded.season_id)||SEASON, container_number:claimCtx.cn,   /* keep the claim's own season */
-        client:txtOrNull(claimCtx.client), country:txtOrNull(claimCtx.country),
-        bl_number:(claimLoaded&&claimLoaded.bl_number)||'—',
-        status:'cancelled', event:'cancelled', event_detail:'cancelled by user'
-      }}).then(function(res){
+      SB.rpc('crm_cancel_claim',{ p_id:claimCtx.claimId, p_loaded_version:(claimLoaded&&claimLoaded.updated_at)||null, p_reason:'cancelled by user' })   /* status-only: keeps every field, row and the season */.then(function(res){
         claimBusy=false;
         if(res&&res.error){ toast(claimErr(res.error)); return; }
         closeModal('claimModal');
@@ -1529,6 +1522,7 @@ window.CRM = (function(){
     if(/uq_crm_claims_live_container|uq_crm_claims_live_whole|duplicate key/i.test(m)) return 'This container already has a live claim.';
     if(/part-load already claimed/i.test(m)) return 'That part-load is already under a live claim — pick different rows.';
     if(/not authorised/i.test(m)) return 'You do not have access to this region.';
+    if(/only an open claim/i.test(m)) return 'Only an open claim can be cancelled.';
     return 'Save failed — '+esc(m);
   }
 
@@ -1808,7 +1802,7 @@ window.CRM = (function(){
     var rws=(x.crm_redirection_rows||[]).map(function(r){ return {variety:r.variety||'—', mix:'Single', farm:r.farm||'—', ph:r.packhouse||'—', ctype:r.carton_type||'—', carta:r.carta||'', cartons:num(r.cartons), netTons:num(r.net_tons)}; });
     var vs=Array.from(new Set(rws.map(function(r){return r.variety;}).filter(function(v){return v&&v!=='—';})));
     return {
-      key:'RDRIN:'+x.id, redirectedIn:true, redirectId:x.id, redirectRef:x.redirect_ref,
+      key:'RDRIN:'+x.id, redirectedIn:true, redirectId:x.id, redirectRef:x.redirect_ref, season:x.season_id||null,
       cn:x.container_number||'—', originCn:x.container_number||'',
       originClient:x.origin_client||'—', originSub:x.origin_sub_client||'—', originRegion:x.origin_region_id||null,
       client:x.target_client||'—', sub:x.target_sub_client||'—', country:x.country||'',
@@ -1829,7 +1823,7 @@ window.CRM = (function(){
   }
   function loadRedirIn(){
     return SB.from('crm_redirections')
-      .select('id,redirect_ref,status,anchor,product_id,source_invoice_no,container_number,origin_client,origin_sub_client,origin_region_id,target_client,target_sub_client,target_region_id,country,invoice_no,total_cartons,total_net_tons,scope,created_at,crm_redirection_rows(variety,farm,packhouse,carton_type,carta,cartons,net_tons)')
+      .select('id,redirect_ref,status,anchor,season_id,product_id,source_invoice_no,container_number,origin_client,origin_sub_client,origin_region_id,target_client,target_sub_client,target_region_id,country,invoice_no,total_cartons,total_net_tons,scope,created_at,crm_redirection_rows(variety,farm,packhouse,carton_type,carta,cartons,net_tons)')
       .eq('season_id',SEASON).neq('status','cancelled')
       .then(function(res){ if(res&&res.error) throw res.error; REDIR_IN=((res&&res.data)||[]).map(mapRedirIn); })
       .catch(function(){ REDIR_IN=[]; });   /* redirected-in is additive — never block the CRM if it fails */
@@ -2005,7 +1999,7 @@ window.CRM = (function(){
     ensureRows(s).then(function(){ if(redirCtx===s) build(); });
     openModal('redirModal');
   }
-  function redirErr(e){ var m=(e&&e.message)||String(e||''); if(/over-redirect/i.test(m)) return 'Over-redirect — a selected row is already fully redirected on another active redirect.'; if(/not authorised/i.test(m)) return 'You do not have access to this region.'; return 'Redirect failed — '+esc(m); }
+  function redirErr(e){ var m=(e&&e.message)||String(e||''); if(/over-redirect/i.test(m)) return 'Over-redirect — a selected row is already fully redirected on another active redirect.'; if(/not authorised/i.test(m)) return 'You do not have access to this region.'; if(/CONFLICT/.test(m)) return 'Someone else changed this redirect — reopen it to see their version.'; if(/only an active redirect/i.test(m)) return 'This redirect is already cancelled.'; return 'Redirect failed — '+esc(m); }
   function saveRedirect(){
     var s=redirCtx; if(!s){ closeModal('redirModal'); return; }
     if(redirBusy) return;
@@ -2189,7 +2183,7 @@ window.CRM = (function(){
     var conts=visibleShipments().filter(function(s){return s.invoice===inv;});
     if(!conts.length) return;
     var c0=conts[0];
-    invCtx={inv:inv,client:c0.client,sub:c0.sub,country:c0.country,region:c0.region,product:c0.product,conts:conts};
+    invCtx={inv:inv,client:c0.client,sub:c0.sub,country:c0.country,region:c0.region,product:c0.product,conts:conts,invSeason:c0.season||SEASON};   /* the invoice's own season */
     Promise.all(conts.map(ensureRows)).then(function(){ invSeedRows(); then(); });
   }
   function invSeedRows(){
@@ -2253,7 +2247,7 @@ window.CRM = (function(){
   var invLifecycle='open';
   function setInvLifecycle(lc){ invLifecycle=lc; [].forEach.call(ROOT.querySelectorAll('#icLifecycle .lc-step'),function(el){ el.className='lc-step'+(el.getAttribute('data-lc')===lc?' sel-'+lc:''); }); var cf=$('icClosing'); if(cf) cf.style.display=lc==='closed'?'block':'none'; }
   function openInvClaim(inv){ invMode='claim'; _openInv(inv,function(){
-    invCtx.claimId=null; invCtx.loaded=null; invCtx.season=null;
+    invCtx.claimId=null; invCtx.loaded=null; invCtx.season=invCtx.invSeason;   /* new claim = the invoice's season, not the open one */
     $('icInv').textContent=invCtx.inv; $('icSub').textContent=invCtx.client+' · '+(regionLabel[invCtx.region]||invCtx.region)+' · '+invCtx.conts.length+' containers';
     ['icBl','icVal','icRef','icNotes','icSettled'].forEach(function(id){ setVal(id,''); }); if($('icReason'))$('icReason').selectedIndex=0; if($('icCur'))$('icCur').selectedIndex=0; if($('icRes'))$('icRes').selectedIndex=0;
     if($('icCancel'))$('icCancel').style.display='none'; if($('icSave'))$('icSave').textContent='Raise claim';
@@ -2276,10 +2270,10 @@ window.CRM = (function(){
   }
   function invCancelClaim(){ if(!invCtx||!invCtx.claimId){ closeModal('invClaimModal'); return; } if(invBusy) return;
     crmConfirm('Cancel this claim? It stays in history as Cancelled and frees the part-loads.', function(){
-      invBusy=true; SB.rpc('save_crm_claim_full',{payload:{ id:invCtx.claimId, loaded_version:invCtx.loaded, season_id:invCtx.season||SEASON, container_number:invCtx.conts[0].cn, anchor:'invoice', invoice_no:invCtx.inv, bl_number:'—', status:'cancelled', event:'cancelled', event_detail:'cancelled' }}).then(function(res){ invBusy=false; if(res&&res.error){ toast(claimErr(res.error)); return; } closeModal('invClaimModal'); toast('Claim cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(claimErr(e)); });
+      invBusy=true; SB.rpc('crm_cancel_claim',{ p_id:invCtx.claimId, p_loaded_version:invCtx.loaded, p_reason:'cancelled from invoice '+invCtx.inv }).then(function(res){ invBusy=false; if(res&&res.error){ toast(claimErr(res.error)); return; } closeModal('invClaimModal'); toast('Claim cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(claimErr(e)); });
     }, 'Cancel claim'); }
   function openInvRedirect(inv){ invMode='redirect'; _openInv(inv,function(){
-    invCtx.redirectId=null; invCtx.loaded=null; invCtx.season=null;
+    invCtx.redirectId=null; invCtx.loaded=null; invCtx.season=invCtx.invSeason;   /* new redirect = the invoice's season */
     $('irInvNo').textContent=invCtx.inv; $('irSubT').textContent=invCtx.client+' · '+(regionLabel[invCtx.region]||invCtx.region)+' · '+invCtx.conts.length+' containers';
     $('irClient').innerHTML=redirClientOptions(''); $('irSub').innerHTML=redirSubOptions(''); setVal('irInv',''); setVal('irNotes','');
     if($('irCancel'))$('irCancel').style.display='none'; if($('irSave'))$('irSave').textContent='Redirect';
@@ -2300,7 +2294,7 @@ window.CRM = (function(){
   }
   function invCancelRedirect(){ if(!invCtx||!invCtx.redirectId){ closeModal('invRedirModal'); return; } if(invBusy) return;
     crmConfirm('Cancel this redirect? It stays in history and frees the part-loads.', function(){
-      invBusy=true; SB.rpc('save_crm_redirection_full',{payload:{ id:invCtx.redirectId, loaded_version:invCtx.loaded, season_id:invCtx.season||SEASON, container_number:invCtx.conts[0].cn, anchor:'invoice', source_invoice_no:invCtx.inv, target_client:($('irClient')&&$('irClient').value)||invCtx.client, status:'cancelled', event:'cancelled', event_detail:'cancelled' }}).then(function(res){ invBusy=false; if(res&&res.error){ toast(redirErr(res.error)); return; } closeModal('invRedirModal'); invRedirMap=null; toast('Redirect cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(redirErr(e)); });
+      invBusy=true; SB.rpc('crm_cancel_redirection',{ p_id:invCtx.redirectId, p_loaded_version:invCtx.loaded, p_reason:'cancelled from invoice '+invCtx.inv }).then(function(res){ invBusy=false; if(res&&res.error){ toast(redirErr(res.error)); return; } closeModal('invRedirModal'); invRedirMap=null; toast('Redirect cancelled.'); reload(); }).catch(function(e){ invBusy=false; toast(redirErr(e)); });
     }, 'Cancel redirect'); }
   function invRedirClientChanged(){ var c=$('irClient')?$('irClient').value:''; if($('irSub')) $('irSub').innerHTML=redirSubOptions(c); invRender(); }
   /* cancel a container-anchored redirect from the Redirects list (invoice ones cancel from their modal) — P0-2 */
@@ -2309,7 +2303,7 @@ window.CRM = (function(){
       var x=((r&&r.data)||[])[0]; if(!x){ toast('Redirect not found.'); return; }
       if(x.status==='cancelled'){ toast('Already cancelled.'); return; }
       crmConfirm('Cancel redirect <b>'+esc(x.redirect_ref||'')+'</b> on <span class="mono">'+esc(x.container_number||'')+'</span>?<br>It stays in history as Cancelled and the goods are freed to redirect again.', function(){
-        SB.rpc('save_crm_redirection_full',{payload:{ id:x.id, loaded_version:x.updated_at||null, season_id:x.season_id, container_number:x.container_number, anchor:x.anchor||'container', source_invoice_no:x.source_invoice_no||null, target_client:x.target_client, status:'cancelled', event:'cancelled', event_detail:'cancelled by user' }}).then(function(res){
+        SB.rpc('crm_cancel_redirection',{ p_id:x.id, p_loaded_version:x.updated_at||null, p_reason:'cancelled by user' }).then(function(res){
           if(res&&res.error){ toast(redirErr(res.error)); return; }
           toast('Redirect <b>cancelled</b>.'); reload();
         }).catch(function(e){ toast(redirErr(e)); });
@@ -2318,6 +2312,42 @@ window.CRM = (function(){
   }
   /* open the source container's drawer from a redirect row (best-effort by container number) — P0-2 / interaction #12 */
   function openShipByCn(cn){ var hit=null; for(var i=0;i<SHIPMENTS.length;i++){ if(SHIPMENTS[i].cn===cn){ hit=SHIPMENTS[i]; break; } } if(hit) openShipDetail(hit.key); else toast('That container is not in the current region/season view.'); }
+  /* Duplicate part-load guard for invoice claims/redirects. Matches invoice + container + part-load with NO season
+     filter (the server check is per-season, which let CLM-2026-1100/1101 through). Resolves a message to block, or null.
+     A read failure resolves null (fail open) — the server/DB guards still apply. */
+  function invDupCheck(kind, rows, selfId){
+    var isClaim=kind==='claim';
+    var q=isClaim
+      ? SB.from('crm_claims').select('id,claim_ref,scope,container_number').eq('invoice_no',invCtx.inv).neq('status','cancelled')
+      : SB.from('crm_redirections').select('id,redirect_ref').eq('source_invoice_no',invCtx.inv).eq('status','active');
+    return q.then(function(res){
+      if(res&&res.error) throw res.error;
+      var others=((res&&res.data)||[]).filter(function(x){ return x.id!==selfId; });
+      if(!others.length) return null;
+      var byId={}; others.forEach(function(x){ byId[x.id]=x; });
+      var ids=others.map(function(x){ return x.id; });
+      var rq=isClaim
+        ? SB.from('crm_claim_rows').select('claim_id,ship_container,ship_carta,variety,farm,packhouse').in('claim_id',ids)
+        : SB.from('crm_redirection_rows').select('redirect_id,ship_container,carta,variety,farm,packhouse,redirect_pct').in('redirect_id',ids);
+      return rq.then(function(rr){
+        if(rr&&rr.error) throw rr.error;
+        var ex=(rr&&rr.data)||[];
+        function same(a,b){ return invNcn(a.ship_container)===invNcn(b.ship_container)&&(a.variety||'')===(b.variety||'')&&(a.farm||'')===(b.farm||'')&&(a.packhouse||'')===(b.packhouse||''); }
+        for(var i=0;i<rows.length;i++){
+          var r=rows[i], lbl=esc(r.variety||'—')+' · '+esc(r.farm||'—')+' · '+esc(r.packhouse||'—')+' on <span class="mono">'+esc(r.ship_container)+'</span>';
+          if(isClaim){
+            for(var j=0;j<others.length;j++){ var c=others[j]; if(c.scope==='whole'&&invNcn(c.container_number)===invNcn(r.ship_container)) return 'Container <span class="mono">'+esc(r.ship_container)+'</span> is already under open claim <b>'+esc(c.claim_ref||'')+'</b> — cancel or edit that claim instead.'; }
+            for(var k=0;k<ex.length;k++){ if(same(ex[k],r)&&(ex[k].ship_carta||'')===(r.ship_carta||'')) return 'Part-load '+lbl+' is already under open claim <b>'+esc((byId[ex[k].claim_id]||{}).claim_ref||'')+'</b> — untick it or edit that claim.'; }
+          } else {
+            var used=0, refs=[];
+            ex.forEach(function(e){ if(same(e,r)&&(e.carta||'')===(r.carta||'')){ used+=Number(e.redirect_pct)||0; var rf=(byId[e.redirect_id]||{}).redirect_ref; if(rf&&refs.indexOf(rf)<0) refs.push(rf); } });
+            if(used+(Number(r.redirect_pct)||0)>100.0001) return 'Part-load '+lbl+' is already '+Math.round(used)+'% redirected on <b>'+esc(refs.join(', '))+'</b> — lower the % or edit that redirect.';
+          }
+        }
+        return null;
+      });
+    }).catch(function(e){ if(window.console) console.warn('[CRM] duplicate check skipped:', e); return null; });
+  }
   function saveInvClaim(){
     if(invBusy) return;
     var bl=$('icBl'); if(!bl.value.trim()){ toast('B/L number is required.'); bl.focus(); return; }
@@ -2332,9 +2362,12 @@ window.CRM = (function(){
       notes:txtOrNull($('icNotes')&&$('icNotes').value), rows:rows,
       event:(invCtx.claimId?'updated':'raised'), event_detail:'invoice '+invCtx.inv };
     invBusy=true; var b=$('icSave'); if(b){b.disabled=true;b.textContent='Saving…';}
+    invDupCheck('claim', rows, invCtx.claimId).then(function(dup){
+    if(dup){ invBusy=false; if(b){b.disabled=false;b.textContent=(invCtx.claimId?'Save claim':'Raise claim');} toast(dup); return; }
     SB.rpc('save_crm_claim_full',{payload:payload}).then(function(res){ invBusy=false; if(b)b.disabled=false;
       if(res&&res.error){ if(b)b.textContent=(invCtx.claimId?'Save claim':'Raise claim'); toast(claimErr(res.error)); return; }
       closeModal('invClaimModal'); toast('Claim saved · <b>'+esc((res.data&&res.data.claim_ref)||invCtx.inv)+'</b>'); reload(); }).catch(function(e){ invBusy=false; if(b){b.disabled=false;b.textContent=(invCtx.claimId?'Save claim':'Raise claim');} toast(claimErr(e)); });
+    });
   }
   function saveInvRedirect(){
     if(invBusy) return;
@@ -2349,9 +2382,12 @@ window.CRM = (function(){
       target_client:client, target_sub_client:txtOrNull(sub), invoice_no:txtOrNull($('irInv')&&$('irInv').value),
       notes:txtOrNull($('irNotes')&&$('irNotes').value), rows:rows, event:(invCtx.redirectId?'updated':'created'), event_detail:'invoice '+invCtx.inv+' → '+client };
     invBusy=true; var b=$('irSave'); if(b){b.disabled=true;b.textContent='Saving…';}
+    invDupCheck('redirect', rows, invCtx.redirectId).then(function(dup){
+    if(dup){ invBusy=false; if(b){b.disabled=false;b.textContent=(invCtx.redirectId?'Save redirect':'Redirect');} toast(dup); return; }
     SB.rpc('save_crm_redirection_full',{payload:payload}).then(function(res){ invBusy=false; if(b)b.disabled=false;
       if(res&&res.error){ if(b)b.textContent=(invCtx.redirectId?'Save redirect':'Redirect'); toast(redirErr(res.error)); return; }
       closeModal('invRedirModal'); invRedirMap=null; toast('Redirect saved · <b>'+esc((res.data&&res.data.redirect_ref)||client)+'</b>'); reload(); }).catch(function(e){ invBusy=false; if(b){b.disabled=false;b.textContent=(invCtx.redirectId?'Save redirect':'Redirect');} toast(redirErr(e)); });
+    });
   }
   function invClaimModalHtml(){ return ''
     +'<div class="modal-bg" id="invClaimModal"><div class="modal"><div class="modal-head"><span class="modal-x" role="button" tabindex="0" aria-label="Close" onclick="CRM.requestCloseModal(\'invClaimModal\')">&times;</span><div class="modal-title">Claim — invoice <span class="mono" id="icInv"></span></div><div class="modal-sub" id="icSub">—</div></div><div class="modal-body">'
