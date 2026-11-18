@@ -3401,7 +3401,7 @@ window.CRM = (function(){
     if(!pending.length){ lmUpdate(id,patch,'Enrichment saved.'); return; }
     Promise.all(pending).then(function(){ lmUpdate(id,patch,'Enrichment saved.'); },function(){ lmUpdate(id,patch,'Enrichment saved.'); });
   }
-  function lmQualify(id){ var l=lmById(id); if(!l) return; lmUpdate(id,{ stage:1, disposition:'qualified', qualified_at:new Date().toISOString() },'<b>'+esc(l.company)+'</b> qualified → assign it to a region.'); }
+  function lmQualify(id){ var l=lmById(id); if(!l) return; lmUpdate(id,{ stage:1, disposition:'qualified', qualified_at:new Date().toISOString() },'<b>'+esc(l.company)+'</b> qualified → assign it to '+(lmTeamMode()?'a person.':'a region.')); }
   var lmAsg=null;
   function lmAssignOpen(id){
     lmAsg={id:id,region:null};
@@ -3640,12 +3640,13 @@ window.CRM = (function(){
     var all=base.filter(function(l){return !lmIsReturned(l)&&!lmIsParked(l);});
     var enrN=base.filter(lmIsCaptured).length;
     var qualN=base.filter(lmIsQualified).length;
-    var asgN=base.filter(lmIsAssigned).length;
+    var tm=lmTeamMode();
+    var asgN=tm?base.filter(function(l){ return !!l.assignedTo && !lmIsReturned(l) && !lmIsParked(l); }).length:base.filter(lmIsAssigned).length;
     var kpis=
       kcard('Leads captured',String(base.length),'all capture sources')+
       kcard('In enrichment',String(enrN),'stage 0 · needs fields')+
       kcard('Qualified',String(qualN),'ready to assign')+
-      kcard('Assigned',String(asgN),'to a region');
+      kcard('Assigned',String(asgN),tm?'to a person':'to a region');
     var q=(LM.q||'').toLowerCase();
     /* campaign filter options — distinct campaigns present among these leads, + a "no campaign" bucket */
     var campSeen={}, campOpts=[], anyNoCamp=false;
@@ -3675,7 +3676,9 @@ window.CRM = (function(){
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')">'
         +'<td><span class="lot">'+esc(l.ref)+'</span></td>'
         +'<td><div>'+esc(l.company)+'</div>'+(l.contact?'<div class="cell-sub">'+esc(l.contact)+(l.role?' · '+esc(l.role):'')+'</div>':'')+'</td><td>'+esc(l.country)+'</td>'
-        +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):bdg('badge-warn','unassigned'))+'</td>'
+        +'<td>'+(lmTeamMode()
+            ? (l.assignedTo?esc(l.assignedToName||'—'):bdg('badge-warn','unassigned'))
+            : (l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):bdg('badge-warn','unassigned')))+'</td>'
         +'<td>'+esc(l.product)+'</td>'
         +'<td>'+bdg('badge-n',lmSourceLabel(l.source))+'</td>'
         +'<td>'+(l.campaign?esc(l.campaign):'<span class="cell-sub">—</span>')+'</td>'
@@ -3688,7 +3691,7 @@ window.CRM = (function(){
       +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> '+(lmRegionScoped()?'Your leads':'All leads')+' · '+list.length
       +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.lmImportOpen()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.lmNewOpen()">+ New lead</button></span></div>'
       +filters
-      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Campaign</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
+      +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>'+(lmTeamMode()?'Assigned to':'CRM region')+'</th><th>Product</th><th>Source</th><th>Campaign</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
   }
   function kcard(l,v,s){ return '<div class="card"><div class="kpi-l">'+l+'</div><div class="kpi-v">'+v+'</div><div class="kpi-s">'+(s||'')+'</div></div>'; }
 
@@ -3728,7 +3731,7 @@ window.CRM = (function(){
     if(!list.length) rows='<tr><td colspan="8" class="cell-sub" style="padding:16px;text-align:center">Enrichment queue is clear — every captured lead has its detail.</td></tr>';
     return '<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> Enrichment queue · '+list.length+' captured lead(s)'
       +' <span style="margin-left:auto"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button></span></div>'
-      +'<div class="alert-warn" style="margin-bottom:11px">Captured at the stand or via the public form. Fill in the missing detail, then <strong>Qualify</strong> to advance the lead and route it to a region.</div>'
+      +'<div class="alert-warn" style="margin-bottom:11px">Captured at the stand or via the public form. Fill in the missing detail, then <strong>Qualify</strong> to advance the lead and '+(lmTeamMode()?'assign it to a person.':'route it to a region.')+'</div>'
       +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>Source</th><th>Missing</th><th>Product</th><th>Age</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
   }
 
