@@ -2710,8 +2710,56 @@ window.CRM = (function(){
   function lmRealRegions(){ return REGIONS.filter(function(r){ return r.id!=='all' && !r.admin; }).map(function(r){ return [r.id,r.label]; }); }
   function lmRegionName(slug){ return slug?(regionLabel[slug]||slug):''; }
   /* Current user's region slugs (from region_members; RLS allows reading own rows). Admins bypass. */
+  /* ── Admin "view Leads as" preview — STAGING ONLY (2026-11-18) ──
+     An admin on dalos-commercial-dev can view the Leads screens as a team member would
+     (localStorage.crmPreviewLeadUser = user id). Screens + buttons follow that person's rules;
+     data still comes from the admin session, filtered in the browser the same way the server
+     filters for that person. All lead writes are blocked while previewing. */
+  var LM_PV=null;
+  function lmPvAllowed(){ return IS_ADMIN && /dalos-commercial-dev/.test(location.pathname); }
+  function lmUid(){ return LM_PV?LM_PV.uid:((USER&&USER.id)||null); }
+  function lmPvLoad(){
+    var id=null; try{ id=localStorage.getItem('crmPreviewLeadUser'); }catch(e){}
+    if(!id || !lmPvAllowed() || !SB) return Promise.resolve();
+    return Promise.all([
+      SB.from('crm_team_members').select('team,position').eq('user_id',id),
+      SB.from('users').select('id,full_name').eq('id',id)
+    ]).then(function(r){
+      var t=((r[0]&&r[0].data)||[])[0]||null, u=((r[1]&&r[1].data)||[])[0]||null;
+      LM_PV={uid:id,name:(u&&u.full_name)||'?',team:t?t.team:null,position:t?t.position:null};
+      LM.myTeam=t||false; lmPvBar();
+    }).catch(function(){ LM_PV=null; });
+  }
+  function lmPvBar(){
+    var el=document.getElementById('lmPvBar');
+    if(!lmPvAllowed()){ if(el) el.remove(); return; }
+    if(!el){ el=document.createElement('div'); el.id='lmPvBar'; el.style.cssText='position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;background:#2b1d4a;color:#fff;border-radius:999px;padding:8px 14px;font:600 12.5px system-ui,sans-serif;display:flex;gap:10px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.25)'; document.body.appendChild(el); }
+    var pos=LM_PV?(LM_PV.position?(LM_PV.position.charAt(0).toUpperCase()+LM_PV.position.slice(1)+(LM_PV.team?', '+(LM_PV.team==='fresh'?'Fresh':'Frozen'):'')):'no team'):'';
+    el.innerHTML=LM_PV
+      ? '<span>Previewing Leads as <b>'+esc(LM_PV.name)+'</b> ('+esc(pos)+') · nothing is saved</span><button class="btn btn-secondary btn-sm" onclick="CRM.lmPvOpen()">Switch</button><button class="btn btn-primary btn-sm" onclick="CRM.lmPvSet(null)">Exit preview</button>'
+      : '<button class="btn btn-secondary btn-sm" onclick="CRM.lmPvOpen()">View Leads as…</button>';
+  }
+  function lmPvOpen(){
+    if(!lmPvAllowed()||!SB) return;
+    showDlv('View Leads as','<div class="l-form"><div class="l-formnote">Loading team…</div></div>');
+    SB.from('crm_team_members').select('user_id,team,position').then(function(res){
+      var rows=(res&&res.data)||[], ids=rows.map(function(r){return r.user_id;});
+      return SB.from('users').select('id,full_name').in('id',ids.length?ids:['00000000-0000-0000-0000-000000000000']).then(function(ur){
+        var nm={}; ((ur&&ur.data)||[]).forEach(function(u){ nm[u.id]=u.full_name; });
+        var ord={head:0,manager:1,member:2};
+        rows.sort(function(a,b){ return a.team.localeCompare(b.team)||(ord[a.position]-ord[b.position])||String(nm[a.user_id]).localeCompare(String(nm[b.user_id])); });
+        var list=rows.map(function(r){
+          return '<div class="who" onclick="CRM.lmPvSet(\''+esc(r.user_id)+'\')"><div class="avatar">'+esc(lmInitials(nm[r.user_id]))+'</div><div style="flex:1;min-width:0"><div class="who-n">'+esc(nm[r.user_id]||'—')+'</div><div class="who-s">'+(r.team==='fresh'?'Fresh':'Frozen')+' · '+esc(r.position)+'</div></div></div>';
+        }).join('');
+        $('dlvBody').innerHTML='<div class="l-form"><div class="l-formnote">Staging only. Shows the Leads screens as this person sees them. Nothing you do is saved while previewing.</div>'+list+'<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
+      });
+    }).catch(function(e){ toast('<b>Could not load team.</b> '+esc(String(e))); closeDlv(); });
+  }
+  function lmPvSet(id){ try{ if(id) localStorage.setItem('crmPreviewLeadUser',id); else localStorage.removeItem('crmPreviewLeadUser'); }catch(e){} location.reload(); }
+  function lmPvBlocked(){ if(!LM_PV) return false; toast('<b>Preview only</b> · nothing is saved while previewing.'); return true; }
   function lmLoadMyRegions(){
-    if(IS_ADMIN||!SB||!(USER&&USER.id)){ LM.myRegions={}; LM.myManagerRegions={}; LM.myTeam=false; return Promise.resolve(); }
+    if(lmPvAllowed()){ setTimeout(lmPvBar,0); }
+    if(IS_ADMIN||!SB||!(USER&&USER.id)){ LM.myRegions={}; LM.myManagerRegions={}; LM.myTeam=false; return lmPvLoad(); }
     var pTeam=SB.from('crm_team_members').select('team,position').eq('user_id',USER.id).then(function(res){
       var d=(res&&res.data)||[]; LM.myTeam=d[0]||false;
     }).catch(function(){ LM.myTeam=false; });
@@ -2725,7 +2773,7 @@ window.CRM = (function(){
      leads assigned to them, within their own team. Member = works leads assigned to them. Everyone also
      sees leads they assigned or captured. Admin + marketing assign any lead to any commercial user.
      Server enforces the same rules (crm_leads RLS, crm_leads_list, crm_assign_lead). */
-  function lmTeamMode(){ return !IS_ADMIN && canEditCRM(); }
+  function lmTeamMode(){ return (!IS_ADMIN && canEditCRM()) || !!LM_PV; }
   function lmIsLeadHead(){ return !!(LM.myTeam && LM.myTeam.position==='head'); }
   function lmIsTeamManager(){ return !!(LM.myTeam && LM.myTeam.position==='manager'); }
   function lmCanAssignLead(l){
@@ -2747,7 +2795,7 @@ window.CRM = (function(){
   function lmRegionScoped(){ return lmTeamMode() && !lmIsLeadHead(); }
   function lmScope(rows){
     if(!lmRegionScoped()) return rows;
-    var uid=(USER&&USER.id)||null;
+    var uid=lmUid();
     return rows.filter(function(l){ return uid && (l.assignedTo===uid || l.assignedBy===uid || l.capturedBy===uid); });
   }
   /* region-filter options (regions no longer scope commercial leads, so always the full list) */
@@ -2816,7 +2864,7 @@ window.CRM = (function(){
   function lmIsQualified(l){ return !lmIsReturned(l) && !lmIsParked(l) && !lmIsAssigned(l) && (l.disposition==='qualified'||l.stage>=1); }
   function lmIsCaptured(l){ return !lmIsReturned(l) && !lmIsParked(l) && !lmIsAssigned(l) && !lmIsQualified(l); }
   function lmIsUnclaimed(l){ return lmIsAssigned(l) && !l.assignedTo; }
-  function lmIsMine(l){ var uid=(USER&&USER.id)||null; return !!l.assignedTo && uid && l.assignedTo===uid && !lmIsReturned(l) && !lmIsParked(l); }
+  function lmIsMine(l){ var uid=lmUid(); return !!l.assignedTo && uid && l.assignedTo===uid && !lmIsReturned(l) && !lmIsParked(l); }
   function lmStageBadge(l){
     if(lmIsReturned(l)) return bdg('badge-fail','Returned');
     if(lmIsParked(l)) return bdg('badge-park','Parked');
@@ -2834,6 +2882,7 @@ window.CRM = (function(){
   function lmMissing(l){ var m=[]; if(!l.contact) m.push('contact'); if(!l.role) m.push('role'); if(!l.band) m.push('volume'); if(!l.port) m.push('port'); return m.length?m.join(' · '):'—'; }
   function lmVal(id){ var el=$(id); if(!el) return null; var v=(el.value||'').trim(); return v||null; }
   function lmUpdate(id,patch,msg){
+    if(lmPvBlocked()) return;
     if(!canEditLeadStatus()){ toast('<b>Not permitted</b> · you have view-only access to leads'); return; }
     if(!SB){ toast('No connection.'); return; }
     patch.updated_at=new Date().toISOString();
@@ -2852,6 +2901,7 @@ window.CRM = (function(){
     idx=parseInt(idx,10); if(!(idx>0&&idx<cs.length)) return;
     var pick=cs.splice(idx,1)[0]; cs.unshift(pick); var p=cs[0]||{};
     var patch={ contacts:cs, contact_name:p.name||null, contact_role:p.role||null, email:(p.emails&&p.emails[0])||null, phone:(p.phones&&p.phones[0])||null, updated_at:new Date().toISOString() };
+    if(lmPvBlocked()) return;
     SB.from('crm_leads').update(patch).eq('id',id).then(function(res){
       if(res&&res.error){ toast('<b>Failed.</b> '+esc(res.error.message||'')); return; }
       r.contacts=cs; r.contact_name=patch.contact_name; r.contact_role=patch.contact_role; r.email=patch.email; r.phone=patch.phone;
@@ -2882,6 +2932,7 @@ window.CRM = (function(){
     if(!lmDeleteMatch(id)){ toast('Type the company name exactly to confirm.'); return; }
     if(!SB){ toast('No connection.'); return; }
     var b=$('lmdel_go'); if(b){ b.disabled=true; b.textContent='Deleting…'; }
+    if(lmPvBlocked()) return;
     SB.rpc('crm_delete_lead',{p_id:id}).then(function(res){
       if(res&&res.error){ toast('<b>Delete failed.</b> '+esc(res.error.message||'')); if(b){b.disabled=false;b.textContent='Delete lead';} return; }
       var paths=(res&&res.data)||[], done=function(){ closeDlv(); toast('Lead <b>'+esc(l.company)+'</b> deleted.'); lmReload(); };
@@ -2892,7 +2943,7 @@ window.CRM = (function(){
   /* ── deal-stage progression (Accepted → Engaged → Specs → Quoted → Shipped → Repeat) ──
      Advanceable only once a lead has an owner (Accepted). Who: the owner, a manager of the lead's
      region, or an admin (lmIsManagerOf already folds in admin). Persists in crm_leads.stage (3–7). */
-  function lmCanAdvance(l){ var uid=(USER&&USER.id)||null; return !lmIsReturned(l) && !!l.assignedTo && (lmIsMine(l) || (lmTeamMode() ? (lmIsLeadHead() || (!!uid && l.assignedBy===uid)) : lmIsManagerOf(l.assignedRegion))); }
+  function lmCanAdvance(l){ var uid=lmUid(); return !lmIsReturned(l) && !!l.assignedTo && (lmIsMine(l) || (lmTeamMode() ? (lmIsLeadHead() || (!!uid && l.assignedBy===uid)) : lmIsManagerOf(l.assignedRegion))); }
   /* Deal progress — ALWAYS shown (read-only until the lead is Accepted). Maps the lead onto the
      8-stage funnel via lmFunnelStage; advance controls appear only for the owner/manager/admin. */
   function lmDealStepperHtml(l){
@@ -2953,6 +3004,7 @@ window.CRM = (function(){
     if(!SB){ toast('No connection.'); return; }
     var entry={ at:new Date().toISOString(), by:(USER&&USER.id)||null, byName:(USER&&(USER.name||USER.email))||'You', kind:kind, note:txt };
     var thread=(l.thread?l.thread.slice():[]); thread.push(entry);
+    if(lmPvBlocked()) return;
     SB.from('crm_leads').update({ handoff_log:thread, updated_at:new Date().toISOString() }).eq('id',id).then(function(res){
       if(res&&res.error){ toast('<b>Save failed.</b> '+esc(res.error.message||'')); return; }
       l.thread=thread; lmOpen(id); toast(kind==='call'?'Call logged.':(kind==='meeting'?'Meeting logged.':'Note added.'));
@@ -3103,6 +3155,7 @@ window.CRM = (function(){
       notes:v('lmn_notes'),
       campaign_id:(($('lmn_campaign')||{}).value||'')||null,
       raw_payload:(Object.keys(extra).length?extra:null) };
+    if(lmPvBlocked()) return;
     SB.from('crm_leads').insert(rec).select('id,campaign_id').single().then(function(res){
       if(res&&res.error){ if(w) w.innerHTML='<div class="alert-fail" style="margin-top:10px"><b>Save failed.</b> '+esc(res.error.message||'')+'</div>'; return; }
       var row=res&&res.data, camp=(row&&row.campaign_id)||'nocamp', id=row&&row.id, patch={}, pending=[];
@@ -3367,12 +3420,14 @@ window.CRM = (function(){
     showDlv('Assign to person','<div class="l-form"><div class="l-formnote">Loading people…</div></div>');
     SB.rpc('crm_assignable_members',{p_lead:id}).then(function(res){
       if(res&&res.error){ toast('<b>Could not load people.</b> '+esc(res.error.message||'')); closeDlv(); return; }
-      lmMem.rows=(res&&res.data)||[]; lmRenderMemberPicker(l);
+      lmMem.rows=(res&&res.data)||[];
+      if(LM_PV) lmMem.rows=lmMem.rows.filter(function(m){ return LM_PV.position==='head' ? !!m.team : (LM_PV.position==='manager' && m.team===LM_PV.team); });
+      lmRenderMemberPicker(l);
     }).catch(function(e){ toast('<b>Could not load people.</b> '+esc(String(e))); closeDlv(); });
   }
   function lmTeamLabel(t){ return t==='fresh'?'Fresh':(t==='frozen'?'Frozen':''); }
   function lmRenderMemberPicker(l){
-    var curOwner=l.assignedTo, uid=(USER&&USER.id)||null;
+    var curOwner=l.assignedTo, uid=lmUid();
     var rows=lmMem.rows.length?lmMem.rows.map(function(m){
       var sel=(lmMem.to?lmMem.to===m.user_id:(curOwner&&curOwner===m.user_id));
       var pos=m.team_position==='head'?' <span class="pchip ok">Head</span>':(m.team_position==='manager'?' <span class="pchip ok">Manager</span>':'');
@@ -3394,6 +3449,7 @@ window.CRM = (function(){
   function lmAssignMemberSave(){ if(!lmMem||!lmMem.id) return; if(!lmMem.to){ toast('Pick a member first.'); return; } lmDoAssign(lmMem.id,lmMem.to); }
   function lmReleaseMember(){ if(!lmMem||!lmMem.id) return; lmDoAssign(lmMem.id,null); }
   function lmDoAssign(leadId,toUserId){
+    if(lmPvBlocked()){ closeDlv(); return; }
     if(!SB){ toast('No connection.'); return; }
     SB.rpc('crm_assign_lead',{p_lead:leadId,p_to:toUserId}).then(function(res){
       if(res&&res.error){ toast('<b>Assign failed.</b> '+esc(res.error.message||'')); return; }
@@ -4860,14 +4916,14 @@ window.CRM = (function(){
     var mgr=lmIsPipelineManager(), byId={};
     LM.rows.forEach(function(l){
       if(lmIsReturned(l)||lmIsParked(l)) return;
-      if(lmIsMine(l) || (mgr && l.assignedTo && (lmTeamMode() ? (lmIsLeadHead() || (!!USER && l.assignedBy===USER.id)) : lmIsManagerOf(l.assignedRegion)))) byId[l.id]=l;
+      if(lmIsMine(l) || (mgr && l.assignedTo && (lmTeamMode() ? (lmIsLeadHead() || (!!lmUid() && l.assignedBy===lmUid())) : lmIsManagerOf(l.assignedRegion)))) byId[l.id]=l;
     });
     return Object.keys(byId).map(function(k){ return byId[k]; });
   }
   function lmSetPipeAsg(v){ LM.pipeAsg=v; render(); }
   function panePipeline(){
     if(!LM.loaded){ lmEnsure(); return lmSkel(); }
-    var mgr=lmIsPipelineManager(), uid=(USER&&USER.id)||null;
+    var mgr=lmIsPipelineManager(), uid=lmUid();
     var full=pipelineList();
     /* distinct assignees present → drives the "filter by assignment" dropdown */
     var asg={}; full.forEach(function(l){ if(l.assignedTo) asg[l.assignedTo]=l.assignedToName||'—'; });
@@ -5537,6 +5593,7 @@ window.CRM = (function(){
     /* stamp the campaign at import time — it can be picked/changed after pre-flight built the rows */
     var campId=(($('li_campaign')||{}).value||'')||null;
     var recs=lmImp.ready.map(function(r){ r.campaign_id=campId; return r; }), btn=$('li_go'); if(btn){ btn.disabled=true; btn.textContent='Importing…'; }
+    if(lmPvBlocked()) return;
     SB.from('crm_leads').insert(recs).select('id').then(function(res){
       if(res&&res.error){ var pre=$('li_pre'); if(pre) pre.innerHTML+='<div class="alert-fail" style="margin-top:10px"><b>Import failed.</b> '+esc(res.error.message||'')+'</div>'; if(btn){btn.disabled=false;btn.textContent='Import ready rows';} return; }
       var n=(res&&res.data&&res.data.length)||recs.length; closeDlv(); toast(n+' lead(s) imported to the enrichment queue.'); lmReload();
@@ -5617,7 +5674,7 @@ window.CRM = (function(){
     rrToggleDefaults:rrToggleDefaults, rrCreateFor:rrCreateFor, rrCommit:rrCommit, rrDiscard:rrDiscard, rrUndo:rrUndo,
     rrOpenAlias:rrOpenAlias, rrMapAlias:rrMapAlias, rrWhy:rrWhy, rrToggleEngine:rrToggleEngine,
     rrSetRouting:rrSetRouting, rrMembersOpen:rrMembersOpen, rrToggleManager:rrToggleManager,
-    lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
+    lmPvOpen:lmPvOpen, lmPvSet:lmPvSet, lmAssignMemberOpen:lmAssignMemberOpen, lmMemberPick:lmMemberPick, lmAssignMemberSave:lmAssignMemberSave, lmReleaseMember:lmReleaseMember,
     lmRefresh:lmRefresh, lmOpen:lmOpen, lmEnrichOpen:lmEnrichOpen, lmEnrichSave:gm(lmEnrichSave), lmEnrichChip:lmEnrichChip,
     lmQualify:gm(lmQualify), lmAssignOpen:lmAssignOpen, lmPickRegion:lmPickRegion, lmAssignSave:gm(lmAssignSave),
     lmReturnOpen:lmReturnOpen, lmReturnPick:lmReturnPick, lmReturnSave:gs(lmReturnSave), lmRequeueOpen:lmRequeueOpen, lmRequeueSave:gs(lmRequeueSave), lmClaim:gs(lmClaim), lmSetDealStage:lmSetDealStage, lmNoteSave:gs(lmNoteSave), lmParkOpen:lmParkOpen, lmParkChip:lmParkChip, lmParkSave:gs(lmParkSave), lmReactivate:gs(lmReactivate), lmSetParkFilter:lmSetParkFilter, lmSetXs:lmSetXs, lmToggleXsParked:lmToggleXsParked, lmSearch:lmSearch, lmSetF:lmSetF, lmSuggCampaign:lmSuggCampaign, lmSuggOpen:lmSuggOpen, lmSetPrimary:gs(lmSetPrimary), lmDeleteOpen:lmDeleteOpen, lmDeleteCheck:lmDeleteCheck, lmDeleteConfirm:lmDeleteConfirm, lmSetPipeAsg:lmSetPipeAsg,
