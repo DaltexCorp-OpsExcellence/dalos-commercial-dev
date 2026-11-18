@@ -2736,8 +2736,8 @@ window.CRM = (function(){
     if(!el){ el=document.createElement('div'); el.id='lmPvBar'; el.style.cssText='position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;background:#2b1d4a;color:#fff;border-radius:999px;padding:8px 14px;font:600 12.5px system-ui,sans-serif;display:flex;gap:10px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.25)'; document.body.appendChild(el); }
     var pos=LM_PV?(LM_PV.position?(LM_PV.position.charAt(0).toUpperCase()+LM_PV.position.slice(1)+(LM_PV.team?', '+(LM_PV.team==='fresh'?'Fresh':'Frozen'):'')):'no team'):'';
     el.innerHTML=LM_PV
-      ? '<span>Previewing Leads as <b>'+esc(LM_PV.name)+'</b> ('+esc(pos)+') · nothing is saved</span><button class="btn btn-secondary btn-sm" onclick="CRM.lmPvOpen()">Switch</button><button class="btn btn-primary btn-sm" onclick="CRM.lmPvSet(null)">Exit preview</button>'
-      : '<button class="btn btn-secondary btn-sm" onclick="CRM.lmPvOpen()">View Leads as…</button>';
+      ? '<span>Previewing Leads as <b>'+esc(LM_PV.name)+'</b> ('+esc(pos)+') · assignments are simulated, nothing is saved</span><button style="background:#fff;color:#2b1d4a;border:0;border-radius:999px;padding:5px 12px;font:600 12px system-ui,sans-serif;cursor:pointer" onclick="CRM.lmPvOpen()">Switch person</button><button style="background:#fff;color:#2b1d4a;border:0;border-radius:999px;padding:5px 12px;font:600 12px system-ui,sans-serif;cursor:pointer" onclick="CRM.lmPvSet(null)">Exit preview</button>'
+      : '<button style="background:#fff;color:#2b1d4a;border:0;border-radius:999px;padding:5px 12px;font:600 12px system-ui,sans-serif;cursor:pointer" onclick="CRM.lmPvOpen()">View Leads as…</button>';
   }
   function lmPvOpen(){
     if(!lmPvAllowed()||!SB) return;
@@ -2751,11 +2751,28 @@ window.CRM = (function(){
         var list=rows.map(function(r){
           return '<div class="who" onclick="CRM.lmPvSet(\''+esc(r.user_id)+'\')"><div class="avatar">'+esc(lmInitials(nm[r.user_id]))+'</div><div style="flex:1;min-width:0"><div class="who-n">'+esc(nm[r.user_id]||'—')+'</div><div class="who-s">'+(r.team==='fresh'?'Fresh':'Frozen')+' · '+esc(r.position)+'</div></div></div>';
         }).join('');
-        $('dlvBody').innerHTML='<div class="l-form"><div class="l-formnote">Staging only. Shows the Leads screens as this person sees them. Nothing you do is saved while previewing.</div>'+list+'<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
+        $('dlvBody').innerHTML='<div class="l-form"><div class="l-formnote">Staging only. Shows the Leads screens as this person sees them. Assignments are simulated in this browser; nothing is saved.</div>'+list+'<div class="l-formact"><button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
       });
     }).catch(function(e){ toast('<b>Could not load team.</b> '+esc(String(e))); closeDlv(); });
   }
-  function lmPvSet(id){ try{ if(id) localStorage.setItem('crmPreviewLeadUser',id); else localStorage.removeItem('crmPreviewLeadUser'); }catch(e){} location.reload(); }
+  function lmPvSet(id){ try{ if(id) localStorage.setItem('crmPreviewLeadUser',id); else { localStorage.removeItem('crmPreviewLeadUser'); localStorage.removeItem('crmPreviewSim'); } }catch(e){} location.reload(); }
+  /* Simulated assignments (preview only): {leadId:{to,toName,by,byName}} in localStorage, overlaid on the loaded rows. */
+  function lmPvSimGet(){ try{ return JSON.parse(localStorage.getItem('crmPreviewSim')||'{}')||{}; }catch(e){ return {}; } }
+  function lmPvApplySim(rows){
+    if(!LM_PV) return rows; var sim=lmPvSimGet();
+    rows.forEach(function(l){ var x=sim[l.id]; if(!x) return; l.assignedTo=x.to; l.assignedToName=x.toName||''; l.assignedBy=x.by; l.assignedByName=x.byName||''; l.assignedAt=x.at; if((l.stage||0)<2) l.stage=2; });
+    return rows;
+  }
+  function lmPvSimAssign(leadId,toUserId){
+    var l=lmById(leadId); if(!l) return;
+    var m=null; lmMem.rows.forEach(function(r){ if(r.user_id===toUserId) m=r; });
+    if(LM_PV.position==='manager' && !toUserId){ toast('<b>Refused</b> · only a team head, marketing or an admin can unassign.'); return; }
+    if(toUserId && !m){ toast('<b>Refused</b> · that person is not someone you can assign to.'); return; }
+    var sim=lmPvSimGet(); sim[leadId]={to:toUserId||null,toName:m?m.full_name:'',by:LM_PV.uid,byName:LM_PV.name,at:new Date().toISOString()};
+    try{ localStorage.setItem('crmPreviewSim',JSON.stringify(sim)); }catch(e){}
+    closeDlv(); toast('<b>Preview</b> · '+(toUserId?'assigned to '+esc(m.full_name):'unassigned')+' (simulated, not saved). Switch person to see their view.');
+    lmReload();
+  }
   function lmPvBlocked(){ if(!LM_PV) return false; toast('<b>Preview only</b> · nothing is saved while previewing.'); return true; }
   function lmLoadMyRegions(){
     if(lmPvAllowed()){ setTimeout(lmPvBar,0); }
@@ -2839,7 +2856,7 @@ window.CRM = (function(){
     Promise.all([pMine, SB.rpc('crm_leads_list')]).then(function(r){
       var res=r[1]; LM.loading=false; LM.loaded=true;
       if(res&&res.error) toast('<b>Could not load leads.</b> '+esc(res.error.message||''));
-      else LM.rows=((res&&res.data)||[]).map(lmMap);
+      else LM.rows=lmPvApplySim(((res&&res.data)||[]).map(lmMap));
       if(lmNeedsRender()) render();
     }).catch(function(){ LM.loading=false; LM.loaded=true; if(lmNeedsRender()) render(); });
   }
@@ -3449,7 +3466,7 @@ window.CRM = (function(){
   function lmAssignMemberSave(){ if(!lmMem||!lmMem.id) return; if(!lmMem.to){ toast('Pick a member first.'); return; } lmDoAssign(lmMem.id,lmMem.to); }
   function lmReleaseMember(){ if(!lmMem||!lmMem.id) return; lmDoAssign(lmMem.id,null); }
   function lmDoAssign(leadId,toUserId){
-    if(lmPvBlocked()){ closeDlv(); return; }
+    if(LM_PV){ lmPvSimAssign(leadId,toUserId); return; }
     if(!SB){ toast('No connection.'); return; }
     SB.rpc('crm_assign_lead',{p_lead:leadId,p_to:toUserId}).then(function(res){
       if(res&&res.error){ toast('<b>Assign failed.</b> '+esc(res.error.message||'')); return; }
