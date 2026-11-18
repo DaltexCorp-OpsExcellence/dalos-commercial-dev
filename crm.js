@@ -2704,17 +2704,34 @@ window.CRM = (function(){
      LEADS array + lead* handlers below still power the DEFERRED views (Lead
      inbox, Funnel, Conversion) — demo-only until the Phase-2 rules land.
      ═══════════════════════════════════════════════════════════════════════ */
-  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all',campaign:'all'},myRegions:null,myManagerRegions:null,pipeAsg:'all',parkFilter:'all',xsFrom:'all',xsWants:'all',xsParked:true};
+  var LM={rows:[],loaded:false,loading:false,q:'',f:{source:'all',region:'all',stage:'all',campaign:'all'},myRegions:null,myManagerRegions:null,myTeam:null,pipeAsg:'all',parkFilter:'all',xsFrom:'all',xsWants:'all',xsParked:true};
   /* Leads use the SAME region model as Tracking & Claims: regions (slug id + label) + region_members.
      Assignable regions = real regions from the loaded REGIONS list, excluding 'all' and the bucket. */
   function lmRealRegions(){ return REGIONS.filter(function(r){ return r.id!=='all' && !r.admin; }).map(function(r){ return [r.id,r.label]; }); }
   function lmRegionName(slug){ return slug?(regionLabel[slug]||slug):''; }
   /* Current user's region slugs (from region_members; RLS allows reading own rows). Admins bypass. */
   function lmLoadMyRegions(){
-    if(IS_ADMIN||!SB||!(USER&&USER.id)){ LM.myRegions={}; LM.myManagerRegions={}; return Promise.resolve(); }
-    return SB.from('region_members').select('region_id,is_manager').eq('user_id',USER.id).then(function(res){
+    if(IS_ADMIN||!SB||!(USER&&USER.id)){ LM.myRegions={}; LM.myManagerRegions={}; LM.myTeam=false; return Promise.resolve(); }
+    var pTeam=SB.from('crm_team_members').select('team,position').eq('user_id',USER.id).then(function(res){
+      var d=(res&&res.data)||[]; LM.myTeam=d[0]||false;
+    }).catch(function(){ LM.myTeam=false; });
+    var pReg=SB.from('region_members').select('region_id,is_manager').eq('user_id',USER.id).then(function(res){
       var m={}, mm={}; ((res&&res.data)||[]).forEach(function(r){ if(r.region_id){ m[r.region_id]=true; if(r.is_manager) mm[r.region_id]=true; } }); LM.myRegions=m; LM.myManagerRegions=mm;
     }).catch(function(){ LM.myRegions={}; LM.myManagerRegions={}; });
+    return Promise.all([pTeam,pReg]);
+  }
+  /* Lead teams (crm_team_members, 2026-11-18): for the COMMERCIAL role the Leads section is team-based,
+     not region-based. Head = sees every lead, assigns any lead to any team member. Manager = passes on
+     leads assigned to them, within their own team. Member = works leads assigned to them. Everyone also
+     sees leads they assigned or captured. Admin + marketing assign any lead to any commercial user.
+     Server enforces the same rules (crm_leads RLS, crm_leads_list, crm_assign_lead). */
+  function lmTeamMode(){ return !IS_ADMIN && canEditCRM(); }
+  function lmIsLeadHead(){ return !!(LM.myTeam && LM.myTeam.position==='head'); }
+  function lmIsTeamManager(){ return !!(LM.myTeam && LM.myTeam.position==='manager'); }
+  function lmCanAssignLead(l){
+    if(!l || lmIsReturned(l) || lmIsParked(l)) return false;
+    if(!lmTeamMode()) return IS_ADMIN || !canEditCRM();
+    return lmIsLeadHead() || (lmIsTeamManager() && lmIsMine(l));
   }
   /* Region routing mode ('claim'|'assign') and the caller's manager status.
      lmIsManagerOf = admin OR flagged is_manager for that region (server RPCs re-check). */
@@ -2725,14 +2742,16 @@ window.CRM = (function(){
      region(s) they belong to; marketing (editCRM:0) and admins see all. canEditCRM() distinguishes
      commercial from marketing without a role field. Presentational only — crm_leads_list already
      returns everything; server-side RLS region scoping is a Phase-2 item. */
-  function lmRegionScoped(){ return !IS_ADMIN && canEditCRM(); }
+  /* (2026-11-18) Scoped = commercial user who is not a team head: sees leads assigned to / by them
+     or captured by them (mirrors crm_leads_list). Name kept for its call sites. */
+  function lmRegionScoped(){ return lmTeamMode() && !lmIsLeadHead(); }
   function lmScope(rows){
     if(!lmRegionScoped()) return rows;
-    var m=LM.myRegions||{};
-    return rows.filter(function(l){ return l.assignedRegion && m[l.assignedRegion]; });
+    var uid=(USER&&USER.id)||null;
+    return rows.filter(function(l){ return uid && (l.assignedTo===uid || l.assignedBy===uid || l.capturedBy===uid); });
   }
-  /* region-filter options, narrowed to the user's own regions when scoped */
-  function lmScopedRegions(){ if(!lmRegionScoped()) return lmRealRegions(); var m=LM.myRegions||{}; return lmRealRegions().filter(function(r){ return m[r[0]]; }); }
+  /* region-filter options (regions no longer scope commercial leads, so always the full list) */
+  function lmScopedRegions(){ return lmRealRegions(); }
   var LM_SOURCES=[['manual','Manual'],['qr_vcard','QR / vCard'],['ocr_card','Card OCR'],['public_form','Public form'],['csv_import','CSV import']];
   function lmSourceLabel(s){ for(var i=0;i<LM_SOURCES.length;i++) if(LM_SOURCES[i][0]===s) return LM_SOURCES[i][1]; return s||'—'; }
   function lmAge(ts){ if(!ts) return '—'; var d=Math.floor((Date.now()-new Date(ts).getTime())/86400000); if(d<=0) return 'today'; if(d===1) return '1d'; if(d<30) return d+'d'; return Math.floor(d/30)+'mo'; }
@@ -2873,7 +2892,7 @@ window.CRM = (function(){
   /* ── deal-stage progression (Accepted → Engaged → Specs → Quoted → Shipped → Repeat) ──
      Advanceable only once a lead has an owner (Accepted). Who: the owner, a manager of the lead's
      region, or an admin (lmIsManagerOf already folds in admin). Persists in crm_leads.stage (3–7). */
-  function lmCanAdvance(l){ return !lmIsReturned(l) && !!l.assignedTo && (lmIsMine(l)||lmIsManagerOf(l.assignedRegion)); }
+  function lmCanAdvance(l){ var uid=(USER&&USER.id)||null; return !lmIsReturned(l) && !!l.assignedTo && (lmIsMine(l) || (lmTeamMode() ? (lmIsLeadHead() || (!!uid && l.assignedBy===uid)) : lmIsManagerOf(l.assignedRegion))); }
   /* Deal progress — ALWAYS shown (read-only until the lead is Accepted). Maps the lead onto the
      8-stage funnel via lmFunnelStage; advance controls appear only for the owner/manager/admin. */
   function lmDealStepperHtml(l){
@@ -3142,13 +3161,16 @@ window.CRM = (function(){
     } else {
       acts.push('<button class="btn btn-secondary" onclick="CRM.lmEnrichOpen(\''+l.id+'\')">Enrich</button>');
       if(lmIsCaptured(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmQualify(\''+l.id+'\')">Qualify</button>');
-      if(lmIsQualified(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>');
-      if(lmIsUnclaimed(l)){
+      if(lmIsQualified(l) && !lmTeamMode()) acts.push('<button class="btn btn-primary" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>');
+      if((lmIsCaptured(l)||lmIsQualified(l)) && lmCanAssignLead(l)) acts.push('<button class="btn btn-'+(lmTeamMode()?'primary':'secondary')+'" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to person…</button>');
+      if(lmIsUnclaimed(l) && lmTeamMode()){
+        if(lmCanAssignLead(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to person…</button>');
+      } else if(lmIsUnclaimed(l)){
         var uMode=lmRoutingOf(l.assignedRegion), uMgr=lmIsManagerOf(l.assignedRegion);
         if(uMode==='claim') acts.push('<button class="btn btn-primary" onclick="CRM.lmClaim(\''+l.id+'\')">Claim (assign to me)</button>');
         if(uMgr) acts.push('<button class="btn btn-'+(uMode==='assign'?'primary':'secondary')+'" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to member…</button>');
       }
-      if(lmIsAssigned(l) && l.assignedTo && lmIsManagerOf(l.assignedRegion)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>');
+      if(lmIsAssigned(l) && l.assignedTo && (lmTeamMode() ? lmCanAssignLead(l) : (lmIsManagerOf(l.assignedRegion)||lmCanAssignLead(l)))) acts.push('<button class="btn btn-secondary" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>');
       if(lmIsReturned(l)) acts.push('<button class="btn btn-primary" onclick="CRM.lmRequeueOpen(\''+l.id+'\')">Re-queue</button>');
       if(!lmIsReturned(l)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmParkOpen(\''+l.id+'\')">Park for later…</button>');
       if(!lmIsReturned(l)) acts.push('<button class="btn btn-secondary" onclick="CRM.lmReturnOpen(\''+l.id+'\')">Return to marketing</button>');
@@ -3334,32 +3356,37 @@ window.CRM = (function(){
      release). Both RPCs re-check admin/manager-of-region server-side, so the client gate (lmIsManagerOf)
      is cosmetic — a non-manager who forces the call gets the RPC error surfaced via the toast. */
   var lmMem={id:null,region:null,to:null,rows:[]};
+  /* (2026-11-18) Picker is fed by crm_assignable_members(lead): admin/marketing -> every commercial user;
+     team head -> every team member; manager -> own team (only for a lead assigned to them).
+     crm_assign_lead re-checks the same rules server-side. */
   function lmAssignMemberOpen(id){
     var l=lmById(id); if(!l) return;
-    var region=l.assignedRegion;
-    if(!region){ toast('Assign the lead to a region first.'); return; }
-    if(!lmIsManagerOf(region)){ toast('<b>Not permitted</b> · only a region manager can assign leads.'); return; }
+    if(!lmCanAssignLead(l)){ toast('<b>Not permitted</b> · you can’t assign this lead.'); return; }
     if(!SB){ toast('No connection.'); return; }
-    lmMem={id:id,region:region,to:null,rows:[]};
-    showDlv('Assign to member','<div class="l-form"><div class="l-formnote">Loading '+esc(regionLabel[region]||region)+' members…</div></div>');
-    SB.rpc('crm_region_members',{p_region:region}).then(function(res){
-      if(res&&res.error){ toast('<b>Could not load members.</b> '+esc(res.error.message||'')); closeDlv(); return; }
+    lmMem={id:id,region:l.assignedRegion||null,to:null,rows:[]};
+    showDlv('Assign to person','<div class="l-form"><div class="l-formnote">Loading people…</div></div>');
+    SB.rpc('crm_assignable_members',{p_lead:id}).then(function(res){
+      if(res&&res.error){ toast('<b>Could not load people.</b> '+esc(res.error.message||'')); closeDlv(); return; }
       lmMem.rows=(res&&res.data)||[]; lmRenderMemberPicker(l);
-    }).catch(function(e){ toast('<b>Could not load members.</b> '+esc(String(e))); closeDlv(); });
+    }).catch(function(e){ toast('<b>Could not load people.</b> '+esc(String(e))); closeDlv(); });
   }
+  function lmTeamLabel(t){ return t==='fresh'?'Fresh':(t==='frozen'?'Frozen':''); }
   function lmRenderMemberPicker(l){
-    var region=lmMem.region, curOwner=l.assignedTo;
+    var curOwner=l.assignedTo, uid=(USER&&USER.id)||null;
     var rows=lmMem.rows.length?lmMem.rows.map(function(m){
       var sel=(lmMem.to?lmMem.to===m.user_id:(curOwner&&curOwner===m.user_id));
-      var badge=m.is_manager?' <span class="pchip ok">Manager</span>':'';
+      var pos=m.team_position==='head'?' <span class="pchip ok">Head</span>':(m.team_position==='manager'?' <span class="pchip ok">Manager</span>':'');
       var owns=(curOwner&&curOwner===m.user_id)?' <span class="pchip mut">current owner</span>':'';
+      var you=(uid&&uid===m.user_id)?' <span class="pchip mut">you</span>':'';
+      var sub=m.team?(lmTeamLabel(m.team)+' team'):'No team';
       return '<div class="who'+(sel?' sel':'')+'" onclick="CRM.lmMemberPick(\''+esc(m.user_id)+'\')"><div class="avatar">'+esc(lmInitials(m.full_name))+'</div>'
-        +'<div style="flex:1;min-width:0"><div class="who-n">'+esc(m.full_name||'—')+badge+owns+'</div><div class="who-s">'+esc(m.role||'member')+'</div></div>'
+        +'<div style="flex:1;min-width:0"><div class="who-n">'+esc(m.full_name||'—')+pos+you+owns+'</div><div class="who-s">'+esc(sub)+'</div></div>'
         +'<div class="who-s" style="margin-left:auto;white-space:nowrap">'+(m.open_load||0)+' open</div></div>';
-    }).join(''):'<div class="empty-state">No members in this region yet. An admin can add them under Admin → Users → Region access.</div>';
-    var releaseBtn=curOwner?'<button class="btn btn-secondary" onclick="CRM.lmReleaseMember()">Release to inbox</button>':'';
-    var body='<div class="l-form"><div class="l-formnote">Assign <b>'+esc(l.company)+'</b> to a member of <b>'+esc(regionLabel[region]||region)+'</b>. The member owns it in their pipeline; you can re-assign later.</div>'
-      +'<div class="l-qhdr">Assign to member</div>'+rows
+    }).join(''):'<div class="empty-state">No one you can assign this lead to.</div>';
+    var canRelease=curOwner && (!lmTeamMode() || lmIsLeadHead());
+    var releaseBtn=canRelease?'<button class="btn btn-secondary" onclick="CRM.lmReleaseMember()">Unassign</button>':'';
+    var body='<div class="l-form"><div class="l-formnote">Assign <b>'+esc(l.company)+'</b> to a person. They own it in their pipeline; it can be re-assigned later.</div>'
+      +'<div class="l-qhdr">Assign to</div>'+rows
       +'<div class="l-formact"><button class="btn btn-primary" onclick="CRM.lmAssignMemberSave()">Assign</button>'+releaseBtn+'<button class="btn btn-secondary" onclick="CRM.closeDlv()">Cancel</button></div></div>';
     $('dlvBody').innerHTML=body;
   }
@@ -3370,7 +3397,7 @@ window.CRM = (function(){
     if(!SB){ toast('No connection.'); return; }
     SB.rpc('crm_assign_lead',{p_lead:leadId,p_to:toUserId}).then(function(res){
       if(res&&res.error){ toast('<b>Assign failed.</b> '+esc(res.error.message||'')); return; }
-      closeDlv(); toast(toUserId?'Lead assigned.':'Lead released back to the inbox.'); lmReload();
+      closeDlv(); toast(toUserId?'Lead assigned.':'Lead unassigned.'); lmReload();
     }).catch(function(e){ toast('<b>Assign failed.</b> '+esc(String(e))); });
   }
   /* Return to marketing — captures a reason (why), who, and when. Drops rep ownership so the
@@ -3528,7 +3555,7 @@ window.CRM = (function(){
       var rejN=LM.loaded?sc.filter(lmIsReturned).length:'';
       var parkN=LM.loaded?sc.filter(lmIsParked).length:'';
       var xsN=LM.loaded?sc.filter(function(l){return !!lmCrossSell(l);}).length:'';
-      bar=lsegBar('leads',[['ws',lmRegionScoped()?'My region':'All leads',allN,'badge-n'],['enr','Needs enrichment',enrN,'badge-warn'],['rej','Returned',rejN,'badge-fail'],['park','Parked',parkN,'badge-park'],['xsell','Cross-sell',xsN,'badge-n']]);
+      bar=lsegBar('leads',[['ws',lmRegionScoped()?'My leads':'All leads',allN,'badge-n'],['enr','Needs enrichment',enrN,'badge-warn'],['rej','Returned',rejN,'badge-fail'],['park','Parked',parkN,'badge-park'],['xsell','Cross-sell',xsN,'badge-n']]);
     }
     /* All Leads views (Workspace/Enrichment/Returned/Capture) are REAL now — no dummy draft/live chrome. */
     vc.innerHTML='<div class="lead-portal">'+bar+pane+'</div>';
@@ -3585,7 +3612,7 @@ window.CRM = (function(){
     }).join('');
     if(!list.length) rows='<tr><td colspan="10" class="cell-sub" style="padding:16px;text-align:center">No leads match. Captures from Show Mode and the public form land here.</td></tr>';
     return '<div class="kpi-grid" style="margin-bottom:12px">'+kpis+'</div>'
-      +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> '+(lmRegionScoped()?'Leads in your region(s)':'All leads')+' · '+list.length
+      +'<div class="card" style="margin-bottom:12px"><div class="section-title"><span class="section-title-bar"></span> '+(lmRegionScoped()?'Your leads':'All leads')+' · '+list.length
       +' <span style="margin-left:auto;display:inline-flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="CRM.lmRefresh(this)">↻ Refresh</button><button class="btn btn-secondary btn-sm" onclick="CRM.lmImportOpen()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="CRM.lmNewOpen()">+ New lead</button></span></div>'
       +filters
       +'<div class="table-wrap"><table><thead><tr><th>Lead</th><th>Company</th><th>Country</th><th>CRM region</th><th>Product</th><th>Source</th><th>Campaign</th><th>Vol.</th><th>Stage</th><th>Age</th></tr></thead><tbody id="lwt">'+rows+'</tbody></table></div></div>';
@@ -3751,7 +3778,8 @@ window.CRM = (function(){
         var parkTag=lmIsParked(l)?'<span class="badge badge-park">Parked'+(l.parkRevisit?' · '+esc(lmMonthLabel(l.parkRevisit)):'')+'</span>':'';
         var acts='<button class="btn btn-secondary btn-sm" onclick="CRM.lmOpen(\''+l.id+'\')">Open</button>';
         if(lmIsParked(l)) acts+='<button class="btn btn-primary btn-sm" onclick="CRM.lmReactivate(\''+l.id+'\')">Reactivate</button>';
-        else if(lmIsQualified(l)) acts+='<button class="btn btn-primary btn-sm" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>';
+        else if(lmIsQualified(l) && !lmTeamMode()) acts+='<button class="btn btn-primary btn-sm" onclick="CRM.lmAssignOpen(\''+l.id+'\')">Assign to region…</button>';
+        else if(lmIsQualified(l) && lmCanAssignLead(l)) acts+='<button class="btn btn-primary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Assign to person…</button>';
         return '<div class="inb inb-lead xs-lead"><div class="inb-h"><span class="inb-t">'+esc(l.company)+'</span>'+parkTag+'<span style="margin-left:auto">'+lmStageBadge(l)+'</span></div>'
           +'<div class="inb-meta xs-flow">from '+(l.campaign?'<span class="tag camp">'+esc(l.campaign)+'</span> ':'')+srcTags+' <span class="xs-arrow">→</span> wants '+wantTags+'</div>'
           +'<div class="inb-f"><span class="inb-ref"><span class="lot">'+esc(l.ref)+'</span> '+(l.contact?esc(l.contact)+' · ':'')+esc(l.country||'—')+'</span>'
@@ -4745,8 +4773,9 @@ window.CRM = (function(){
      Per-rep region routing (each rep sees only their region), the accept-race and SLA timers are Phase-2. */
   /* Scoped to the rep's own regions (admins see all). Presentational only — every commercial can
      already read all leads via crm_leads_list; this just routes each rep's inbox to their region(s). */
-  function inboxList(){ var m=LM.myRegions||{}; return LM.rows.filter(function(l){ return lmIsUnclaimed(l) && (IS_ADMIN || m[l.assignedRegion]); }); }
+  function inboxList(){ if(lmTeamMode()) return lmIsLeadHead()?LM.rows.filter(lmIsUnclaimed):[]; var m=LM.myRegions||{}; return LM.rows.filter(function(l){ return lmIsUnclaimed(l) && (IS_ADMIN || m[l.assignedRegion]); }); }
   function lmInboxScopeLabel(){
+    if(lmTeamMode()) return lmIsLeadHead()?'all leads (team head)':'your leads';
     if(IS_ADMIN) return 'all regions (admin)';
     var m=LM.myRegions||{}, ks=Object.keys(m);
     return ks.length?ks.map(function(s){return lmRegionName(s);}).join(' · '):'no region assigned';
@@ -4755,7 +4784,7 @@ window.CRM = (function(){
      status pill (state · routing); a plain middot metadata line replaces the chip row;
      ref + "routed by" sit quiet in the footer beside the actions. */
   function inboxCard(l){
-    var region=l.assignedRegion, mode=lmRoutingOf(region), mgr=lmIsManagerOf(region);
+    var region=l.assignedRegion, mode=lmRoutingOf(region), mgr=lmTeamMode()?lmCanAssignLead(l):lmIsManagerOf(region);
     var days=lmDays(l.assignedAt), hot=days>=3;
     var status='<span class="inb-status '+(mode==='assign'?'':'claim')+'">Unclaimed · '+(mode==='assign'?'Assign':'Claim')+'</span>';
     var age='<span class="inb-age'+(hot?' hot':'')+'">waited '+lmWaited(l.assignedAt)+'</span>';
@@ -4813,7 +4842,9 @@ window.CRM = (function(){
     } else {
       cards=list.map(inboxCard).join('');
     }
-    var emptyMsg=(!IS_ADMIN && !Object.keys(LM.myRegions||{}).length)
+    var emptyMsg=lmTeamMode()
+      ? 'Nothing waiting. Leads assigned to you appear in your pipeline.'
+      : (!IS_ADMIN && !Object.keys(LM.myRegions||{}).length)
       ? 'You have no CRM region assigned yet — an admin can grant one under Admin → Users → Region access.'
       : 'No unclaimed leads in your region(s). Marketing qualifies a lead, then <b>Assign to region</b> to route it here.';
     return '<div class="card"><div class="section-title"><span class="section-title-bar"></span> Lead inbox · '+esc(lmInboxScopeLabel())+' · '+list.length+' unclaimed'
@@ -4821,7 +4852,7 @@ window.CRM = (function(){
       +(list.length?kpis+cards:'<div class="empty-state">'+emptyMsg+'</div>')+'</div>';
   }
   /* True when the user manages ≥1 region (admins always). Managers get the team pipeline. */
-  function lmIsPipelineManager(){ return IS_ADMIN || !!(LM.myManagerRegions && Object.keys(LM.myManagerRegions).length); }
+  function lmIsPipelineManager(){ if(lmTeamMode()) return lmIsLeadHead() || lmIsTeamManager(); return IS_ADMIN || !!(LM.myManagerRegions && Object.keys(LM.myManagerRegions).length); }
   /* Pipeline set: a rep sees only their own owned leads; a manager also sees every OWNED lead in
      the region(s) they manage (their team). De-duped by id (a manager's own lead in a managed
      region would otherwise appear twice). Returned leads are excluded. */
@@ -4829,7 +4860,7 @@ window.CRM = (function(){
     var mgr=lmIsPipelineManager(), byId={};
     LM.rows.forEach(function(l){
       if(lmIsReturned(l)||lmIsParked(l)) return;
-      if(lmIsMine(l) || (mgr && l.assignedTo && lmIsManagerOf(l.assignedRegion))) byId[l.id]=l;
+      if(lmIsMine(l) || (mgr && l.assignedTo && (lmTeamMode() ? (lmIsLeadHead() || (!!USER && l.assignedBy===USER.id)) : lmIsManagerOf(l.assignedRegion)))) byId[l.id]=l;
     });
     return Object.keys(byId).map(function(k){ return byId[k]; });
   }
@@ -4850,14 +4881,14 @@ window.CRM = (function(){
       var mineRow=(uid && l.assignedTo===uid);
       var owner=mineRow?'<b>You</b>':(l.assignedToName?esc(l.assignedToName):'<span class="cell-sub">—</span>');
       var byline=l.assignedByName?'<div class="cell-sub">assigned by '+esc(l.assignedByName)+'</div>':'';
-      var reassign=lmIsManagerOf(l.assignedRegion)?'<button class="btn btn-secondary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>':'';
+      var reassign=(lmTeamMode() ? lmCanAssignLead(l) : (lmIsManagerOf(l.assignedRegion)||lmCanAssignLead(l)))?'<button class="btn btn-secondary btn-sm" onclick="CRM.lmAssignMemberOpen(\''+l.id+'\')">Re-assign</button>':'';
       return '<tr onclick="CRM.lmOpen(\''+l.id+'\')"><td><span class="lot">'+esc(l.ref)+'</span></td><td>'+esc(l.company)+'</td>'
         +'<td>'+owner+byline+'</td>'
         +'<td>'+(l.assignedRegion?bdg('badge-n',lmRegionName(l.assignedRegion)):'—')+'</td>'
         +'<td>'+esc(l.product)+'</td><td>'+(l.campaign?esc(l.campaign):'<span class="cell-sub">—</span>')+'</td><td>'+lmStageBadge(l)+'</td><td class="mono">'+esc(lmDate(l.assignedAt||l.capturedAt))+'</td><td class="mono">'+lmWaited(l.assignedAt||l.capturedAt)+'</td>'
         +'<td onclick="event.stopPropagation()">'+(reassign||'<span class="cell-sub">—</span>')+'</td></tr>';
     }).join('');
-    if(!shown.length) rows='<tr><td colspan="10" class="cell-sub" style="padding:16px;text-align:center">'+(mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.')+'</td></tr>';
+    if(!shown.length) rows='<tr><td colspan="10" class="cell-sub" style="padding:16px;text-align:center">'+(lmTeamMode() ? (mgr?'No leads assigned to your team yet.':'Nothing assigned to you yet.') : (mgr?'No leads assigned in your region(s) yet — assign one from the Lead inbox.':'Nothing claimed yet. <b>Claim</b> a region-assigned lead from the Lead inbox to add it here.'))+'</td></tr>';
     /* assignment filter — managers only (a rep only ever sees themselves) */
     var asgKeys=Object.keys(asg);
     var filterSel=mgr?'<select class="form-select" style="width:auto" onchange="CRM.lmSetPipeAsg(this.value)">'
